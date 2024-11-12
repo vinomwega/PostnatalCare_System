@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Admin Dashboard</title>
+    <link rel="stylesheet" href="../static/css/style.css">
+</head>
+<body>
+    <h2>Welcome to Admin Dashboard</h2>
+    <div>
+        <p>You are logged in as: {{ session['user_type'] }}</p>
+        <a href="{{ url_for('logout') }}">Logout</a>
+    </div>
+    
+    <!-- Add your dashboard content here -->
+    <div class="dashboard-content">
+        <h3>Admin Controls</h3>
+        <ul>
+            <li><a href="{{ url_for('admin_register') }}">Register New Admin</a></li>
+            <!-- Add other admin controls here -->
+        </ul>
+    </div>
+</body>
+</html> 
