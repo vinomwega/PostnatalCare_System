@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Welcome to Postnatal Care System</title>
+    <link rel="stylesheet" href="../static/css/dark-theme.css">
+
+</head>
+<body>
+    <div class="hero">
+        <h1>Welcome to Postnatal Care System</h1>
+        <p>Supporting mothers and healthcare workers in their journey</p>
+        
+        <div class="cta-buttons">
+            <a href="{{ url_for('login') }}" class="btn">Sign In</a>
+            <a href="{{ url_for('register') }}" class="btn" style="background: transparent; border: 2px solid var(--accent-color);">Register</a>
+        </div>
+    </div>
+
+    <div class="features">
+        <div class="container">
+            <h2>Why Choose Us?</h2>
+            <div class="feature-grid">
+                <div class="feature">
+                    <h3>For Mothers</h3>
+                    <p>Access to professional healthcare support and guidance throughout your postnatal journey.</p>
+                </div>
+                <div class="feature">
+                    <h3>For Healthcare Workers</h3>
+                    <p>Efficient tools to manage and support mothers in your community.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html> 

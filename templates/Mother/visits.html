@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>My Visits</title>
+    <link rel="stylesheet" href="../static/css/style.css">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+    <!-- Navigation Bar -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="#">Maternal Care</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('mother_dashboard') }}">Dashboard</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('meal_plan') }}">Meal Plan</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('workout_plan') }}">Workout Plan</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="{{ url_for('visits') }}">Visits</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('my_chw') }}">My CHW</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('profile') }}">Profile</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <!-- CHW Information -->
+        <div class="row mb-4">
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h3>My CHW</h3>
+                    </div>
+                    <div class="card-body">
+                        {% if chw %}
+                            <div class="text-center mb-3">
+                                <img src="../static/img/default-profile.png" 
+                                     class="rounded-circle" alt="CHW Profile" 
+                                     style="width: 100px; height: 100px;">
+                            </div>
+                            <h4 class="text-center">{{ chw.name }}</h4>
+                            <p><strong>Email:</strong> {{ chw.email }}</p>
+                        {% else %}
+                            <div class="alert alert-info">
+                                No CHW has been assigned yet. Please contact the administrator.
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Visits List -->
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-header">
+                        <h3>My Visits</h3>
+                    </div>
+                    <div class="card-body">
+                        {% if visits %}
+                            <div class="table-responsive">
+                                <table class="table table-striped">
+                                    <thead>
+                                        <tr>
+                                            <th>Date</th>
+                                            <th>Time</th>
+                                            <th>Type</th>
+                                            <th>Status</th>
+                                            <th>Notes</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for visit in visits %}
+                                            <tr>
+                                                <td>{{ visit.visit_date }}</td>
+                                                <td>{{ visit.visit_time }}</td>
+                                                <td>{{ visit.visit_type }}</td>
+                                                <td>
+                                                    <span class="badge {% if visit.status == 'Completed' %}bg-success{% elif visit.status == 'Scheduled' %}bg-primary{% else %}bg-warning{% endif %}">
+                                                        {{ visit.status }}
+                                                    </span>
+                                                </td>
+                                                <td>{{ visit.notes or 'No notes' }}</td>
+                                            </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        {% else %}
+                            <div class="alert alert-info">
+                                No visits have been scheduled yet.
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html> 
