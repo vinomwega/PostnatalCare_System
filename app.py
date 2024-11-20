@@ -303,10 +303,10 @@ def chw_meal_plan():
             if meal_id:  # Update existing meal plan
                 cursor.execute("""
                     UPDATE meal_plans 
-                    SET mother_id = %s, meal_type = %s, description = %s, 
+                    SET meal_type = %s, description = %s, 
                         start_date = %s, end_date = %s 
                     WHERE id = %s
-                """, (mother_id, meal_type, description, start_date, end_date, meal_id))
+                """, ( meal_type, description, start_date, end_date, meal_id))
                 flash('Meal plan updated successfully', 'success')
             else:  # Create new meal plan
                 cursor.execute("""
@@ -362,42 +362,110 @@ def chw_meal_plan():
 
 
 #chw workout plan
-@app.route('/chw/chw_workout_plan')
+@app.route('/chw/chw_workout_plan', methods=['GET', 'POST'])
 @login_required
 def chw_workout_plan():
     if session.get('user_type') != 'chw':
         flash('Unauthorized access', 'error')
         return redirect(url_for('login'))
-        
     
-    
-    connection = get_db_connection()
-    cursor = connection.cursor(dictionary=True)
-    
+    connection = None
+    cursor = None
     try:
+        connection = mysql.connector.connect(**db_config)
+        cursor = connection.cursor(dictionary=True)
+
+        if request.method == 'POST':
+            workout_id = request.form.get('workout_id')
+            mother_id = request.form.get('mother_id')
+            exercise_type = request.form.get('exercise_type')
+            duration = request.form.get('duration')
+            frequency = request.form.get('frequency')
+            start_date = request.form.get('start_date')
+            end_date = request.form.get('end_date')
+
+            if workout_id:  # Update existing workout plan
+                cursor.execute("""
+                    UPDATE workout_plans 
+                    SET mother_id = %s, exercise_type = %s, duration = %s,
+                        frequency = %s, start_date = %s, end_date = %s 
+                    WHERE id = %s
+                """, (mother_id, exercise_type, duration, frequency, 
+                      start_date, end_date, workout_id))
+                flash('Workout plan updated successfully', 'success')
+            else:  # Create new workout plan
+                cursor.execute("""
+                    INSERT INTO workout_plans 
+                    (mother_id, exercise_type, duration, frequency, start_date, end_date)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                """, (mother_id, exercise_type, duration, frequency, start_date, end_date))
+                flash('Workout plan created successfully', 'success')
+            
+            connection.commit()
+
+        # Get all assigned mothers
+        cursor.execute("""
+            SELECT u.id, u.username 
+            FROM users u
+            JOIN mother_chw mc ON u.id = mc.mother_id
+            WHERE mc.chw_id = %s AND u.user_type = 'mother'
+        """, (session['user_id'],))
+        mothers = cursor.fetchall()
+
         # Get workout plans for assigned mothers
         cursor.execute("""
-            SELECT wp.*, u.username as mother_name 
+            SELECT wp.*, u.username as mother_name
             FROM workout_plans wp
             JOIN users u ON wp.mother_id = u.id
             JOIN mother_chw mc ON u.id = mc.mother_id
             WHERE mc.chw_id = %s
+            ORDER BY wp.start_date DESC
         """, (session['user_id'],))
-        
         workout_plans = cursor.fetchall()
-        
+
         return render_template('CHW/chw_workout_plan.html', 
-                             workout_plans=workout_plans)
+                             workout_plans=workout_plans,
+                             mothers=mothers)
 
     except mysql.connector.Error as err:
         print(f"Database Error: {err}")
-        flash('Error fetching workout plans', 'error')
-        return render_template('CHW/chw_workout_plan.html', 
-                             workout_plans=[])
+        flash('Error managing workout plans', 'error')
+        return redirect(url_for('chw_dashboard'))
 
     finally:
-        cursor.close()
-        connection.close()
+        if cursor:
+            cursor.close()
+        if connection and connection.is_connected():
+            connection.close()
+#delete workout plan
+@app.route('/chw/workout_plan/delete/<int:workout_id>', methods=['POST'])
+@login_required
+def delete_workout_plan(workout_id):
+    if session.get('user_type') != 'chw':
+        flash('Unauthorized access', 'error')
+        return redirect(url_for('login'))
+    
+    connection = None
+    cursor = None
+    try:
+        connection = mysql.connector.connect(**db_config)
+        cursor = connection.cursor()
+        
+        cursor.execute("DELETE FROM workout_plans WHERE id = %s", (workout_id,))
+        connection.commit()
+        flash('Workout plan deleted successfully', 'success')
+    
+    except mysql.connector.Error as err:
+        print(f"Database Error: {err}")
+        flash('Error deleting workout plan', 'error')
+    
+    finally:
+        if cursor:
+            cursor.close()
+        if connection and connection.is_connected():
+            connection.close()
+    
+    return redirect(url_for('chw_workout_plan'))
 
 #add workout plan
 @app.route('/chw/add_workout_plan', methods=['POST'])
@@ -447,47 +515,9 @@ def add_workout_plan():
     return redirect(url_for('chw_workout_plan'))
 
 #chw visits
-@app.route('/chw/chw_visits')
+@app.route('/chw/chw_visits', methods=['GET', 'POST'])
 @login_required
-
 def chw_visits():
-    if session.get('user_type') != 'chw':
-        flash('Unauthorized access', 'error')
-        return redirect(url_for('login'))
-    
-    connection = get_db_connection()
-    cursor = connection.cursor(dictionary=True)
-    
-    try:
-        # Get visits for assigned mothers
-        cursor.execute("""
-            SELECT v.*, u.username as mother_name 
-            FROM visits v
-            JOIN users u ON v.mother_id = u.id
-            JOIN mother_chw mc ON u.id = mc.mother_id
-            WHERE mc.chw_id = %s
-            ORDER BY v.visit_date DESC
-        """, (session['user_id'],))
-        
-        visits = cursor.fetchall()
-        
-        return render_template('CHW/chw_visits.html', 
-                             visits=visits)
-
-    except mysql.connector.Error as err:
-        print(f"Database Error: {err}")
-        flash('Error fetching visits', 'error')
-        return render_template('CHW/chw_visits.html', 
-                             visits=[])
-
-    finally:
-        cursor.close()
-        connection.close()
-
-# add visits
-@app.route('/chw/add_visit', methods=['POST'])
-@login_required
-def add_visit():
     if session.get('user_type') != 'chw':
         flash('Unauthorized access', 'error')
         return redirect(url_for('login'))
@@ -495,34 +525,104 @@ def add_visit():
     connection = None
     cursor = None
     try:
-        mother_id = request.form.get('mother_id')
-        visit_date = request.form.get('visit_date')
-        visit_time = request.form.get('visit_time')
-        visit_type = request.form.get('visit_type')
-        notes = request.form.get('notes')
-        status = 'Scheduled'  # Default status for new visits
-
-        connection = mysql.connector.connect(
-            host='localhost',
-            user='root',
-            password='',
-            database='postnatalcare_system'
-        )
+        connection = mysql.connector.connect(**db_config)
         cursor = connection.cursor(dictionary=True)
 
-        cursor.execute("""
-            INSERT INTO visits 
-            (mother_id, chw_id, visit_date, visit_time, visit_type, notes, status)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-        """, (mother_id, session['user_id'], visit_date, visit_time, 
-              visit_type, notes, status))
+        if request.method == 'POST':
+            visit_id = request.form.get('visit_id')
+            mother_id = request.form.get('mother_id')
+            visit_date = request.form.get('visit_date')
+            visit_time = request.form.get('visit_time')
+            visit_type = request.form.get('visit_type')
+            purpose = request.form.get('purpose')
+            status = request.form.get('status', 'Scheduled')
+            notes = request.form.get('notes')
 
-        connection.commit()
-        flash('Visit scheduled successfully!', 'success')
+            if visit_id:  # Update existing visit
+                cursor.execute("""
+                    UPDATE visits 
+                    SET mother_id = %s, visit_date = %s, visit_time = %s,
+                        visit_type = %s, purpose = %s, status = %s, notes = %s,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = %s AND chw_id = %s
+                """, (mother_id, visit_date, visit_time, visit_type, purpose, 
+                      status, notes, visit_id, session['user_id']))
+                flash('Visit updated successfully', 'success')
+            else:  # Schedule new visit
+                cursor.execute("""
+                    INSERT INTO visits 
+                    (mother_id, chw_id, visit_date, visit_time, visit_type, 
+                     purpose, status, notes, created_at, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 
+                           CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """, (mother_id, session['user_id'], visit_date, visit_time,
+                      visit_type, purpose, status, notes))
+                flash('Visit scheduled successfully', 'success')
+            
+            connection.commit()
+
+        # Get all assigned mothers
+        cursor.execute("""
+            SELECT u.id, u.username 
+            FROM users u
+            JOIN mother_chw mc ON u.id = mc.mother_id
+            WHERE mc.chw_id = %s AND u.user_type = 'mother'
+        """, (session['user_id'],))
+        mothers = cursor.fetchall()
+
+        # Get upcoming visits
+        cursor.execute("""
+            SELECT 
+                v.id,
+                v.mother_id,
+                u.username as mother_name,
+                DATE_FORMAT(v.visit_date, '%Y-%m-%d') as visit_date,
+                TIME_FORMAT(v.visit_time, '%H:%i') as visit_time,
+                v.visit_type,
+                v.purpose,
+                v.status,
+                v.notes,
+                v.created_at,
+                v.updated_at
+            FROM visits v
+            JOIN users u ON v.mother_id = u.id
+            WHERE v.chw_id = %s 
+            AND v.visit_date >= CURDATE()
+            ORDER BY v.visit_date ASC, v.visit_time ASC
+        """, (session['user_id'],))
+        upcoming_visits = cursor.fetchall()
+
+        # Get past visits
+        cursor.execute("""
+            SELECT 
+                v.id,
+                v.mother_id,
+                u.username as mother_name,
+                DATE_FORMAT(v.visit_date, '%Y-%m-%d') as visit_date,
+                TIME_FORMAT(v.visit_time, '%H:%i') as visit_time,
+                v.visit_type,
+                v.purpose,
+                v.status,
+                v.notes,
+                v.created_at,
+                v.updated_at
+            FROM visits v
+            JOIN users u ON v.mother_id = u.id
+            WHERE v.chw_id = %s 
+            AND v.visit_date < CURDATE()
+            ORDER BY v.visit_date DESC, v.visit_time DESC
+        """, (session['user_id'],))
+        past_visits = cursor.fetchall()
+
+        return render_template('CHW/chw_visits.html',
+                             mothers=mothers,
+                             upcoming_visits=upcoming_visits,
+                             past_visits=past_visits)
 
     except mysql.connector.Error as err:
         print(f"Database Error: {err}")
-        flash('Error scheduling visit', 'error')
+        flash('Error managing visits', 'error')
+        return redirect(url_for('chw_dashboard'))
 
     finally:
         if cursor:
@@ -530,6 +630,33 @@ def add_visit():
         if connection and connection.is_connected():
             connection.close()
 
+@app.route('/chw/visit/delete/<int:visit_id>', methods=['POST'])
+@login_required
+def delete_visit(visit_id):
+    if session.get('user_type') != 'chw':
+        flash('Unauthorized access', 'error')
+        return redirect(url_for('login'))
+    
+    connection = None
+    cursor = None
+    try:
+        connection = mysql.connector.connect(**db_config)
+        cursor = connection.cursor()
+        
+        cursor.execute("DELETE FROM visits WHERE id = %s", (visit_id,))
+        connection.commit()
+        flash('Visit cancelled successfully', 'success')
+    
+    except mysql.connector.Error as err:
+        print(f"Database Error: {err}")
+        flash('Error cancelling visit', 'error')
+    
+    finally:
+        if cursor:
+            cursor.close()
+        if connection and connection.is_connected():
+            connection.close()
+    
     return redirect(url_for('chw_visits'))
 
 #admin dashboard
@@ -663,61 +790,153 @@ def admin_register():
 @app.route('/mother/meal_plan')
 @login_required
 def meal_plan():
-    return render_template('Mother/meal_plan.html')
+    if session.get('user_type') != 'mother':
+        flash('Unauthorized access', 'error')
+        return redirect(url_for('login'))
+    
+    connection = None
+    cursor = None
+    try:
+        connection = mysql.connector.connect(**db_config)
+        cursor = connection.cursor(dictionary=True)
+
+        # Get mother's meal plans with CHW information
+        cursor.execute("""
+            SELECT 
+                mp.*,
+                u.username as chw_name,
+                DATE_FORMAT(mp.start_date, '%Y-%m-%d') as formatted_start_date,
+                DATE_FORMAT(mp.end_date, '%Y-%m-%d') as formatted_end_date
+            FROM meal_plans mp
+            JOIN mother_chw mc ON mp.mother_id = mc.mother_id
+            JOIN users u ON mc.chw_id = u.id
+            WHERE mp.mother_id = %s
+            ORDER BY mp.start_date DESC
+        """, (session['user_id'],))
+        meal_plans = cursor.fetchall()
+
+        return render_template('Mother/meal_plan.html', meal_plans=meal_plans)
+
+    except mysql.connector.Error as err:
+        print(f"Database Error: {err}")
+        flash('Error fetching meal plans', 'error')
+        return render_template('Mother/meal_plan.html', meal_plans=[])
+
+    finally:
+        if cursor:
+            cursor.close()
+        if connection and connection.is_connected():
+            connection.close()
 
 #mother workout plan
 @app.route('/mother/workout_plan')
 @login_required
 def workout_plan():
-    return render_template('Mother/workout_plan.html')
+    if session.get('user_type') != 'mother':
+        flash('Unauthorized access', 'error')
+        return redirect(url_for('login'))
+    
+    connection = None
+    cursor = None
+    try:
+        connection = mysql.connector.connect(**db_config)
+        cursor = connection.cursor(dictionary=True)
+
+        # Get mother's workout plans with CHW information
+        cursor.execute("""
+            SELECT 
+                wp.*,
+                u.username as chw_name,
+                DATE_FORMAT(wp.start_date, '%Y-%m-%d') as formatted_start_date,
+                DATE_FORMAT(wp.end_date, '%Y-%m-%d') as formatted_end_date
+            FROM workout_plans wp
+            JOIN mother_chw mc ON wp.mother_id = mc.mother_id
+            JOIN users u ON mc.chw_id = u.id
+            WHERE wp.mother_id = %s
+            ORDER BY wp.start_date DESC
+        """, (session['user_id'],))
+        workout_plans = cursor.fetchall()
+
+        return render_template('Mother/workout_plan.html', workout_plans=workout_plans)
+
+    except mysql.connector.Error as err:
+        print(f"Database Error: {err}")
+        flash('Error fetching workout plans', 'error')
+        return render_template('Mother/workout_plan.html', workout_plans=[])
+
+    finally:
+        if cursor:
+            cursor.close()
+        if connection and connection.is_connected():
+            connection.close()
 
 #mother visits
 @app.route('/mother/visits')
 @login_required
 def visits():
+    if session.get('user_type') != 'mother':
+        flash('Unauthorized access', 'error')
+        return redirect(url_for('login'))
+    
     connection = None
     cursor = None
     try:
-        # Get the mother's ID from session
         mother_id = session.get('user_id')
         
-        connection = mysql.connector.connect(
-            host='localhost',
-            user='root',
-            password='',
-            database='postnatalcare_system'
-        )
+        connection = mysql.connector.connect(**db_config)
         cursor = connection.cursor(dictionary=True)
 
-        # First, get the CHW information from the users table
+        # Get CHW information
         cursor.execute("""
-            SELECT id, username as name, email, user_type 
-            FROM users 
-            WHERE user_type = 'chw'
-            LIMIT 1
-        """)
+            SELECT 
+                u.id, 
+                u.username as name, 
+                u.email,
+                u.phone_number
+            FROM users u
+            JOIN mother_chw mc ON u.id = mc.chw_id
+            WHERE mc.mother_id = %s AND u.user_type = 'chw'
+        """, (mother_id,))
         chw = cursor.fetchone()
 
-        # Initialize visits as an empty list
-        visits = []
-        
-        # Only fetch visits if we have a CHW
-        if chw:
-            cursor.execute("""
-                SELECT * FROM visits 
-                WHERE mother_id = %s 
-                ORDER BY visit_date DESC, visit_time DESC
-            """, (mother_id,))
-            visits = cursor.fetchall()
+        # Get upcoming visits
+        cursor.execute("""
+            SELECT 
+                v.*,
+                DATE_FORMAT(v.visit_date, '%Y-%m-%d') as formatted_date,
+                TIME_FORMAT(v.visit_time, '%H:%i') as formatted_time
+            FROM visits v
+            WHERE v.mother_id = %s 
+            AND v.visit_date >= CURDATE()
+            ORDER BY v.visit_date ASC, v.visit_time ASC
+        """, (mother_id,))
+        upcoming_visits = cursor.fetchall()
 
-        return render_template('Mother/visits.html', 
-                             chw=chw, 
-                             visits=visits)
+        # Get past visits
+        cursor.execute("""
+            SELECT 
+                v.*,
+                DATE_FORMAT(v.visit_date, '%Y-%m-%d') as formatted_date,
+                TIME_FORMAT(v.visit_time, '%H:%i') as formatted_time
+            FROM visits v
+            WHERE v.mother_id = %s 
+            AND v.visit_date < CURDATE()
+            ORDER BY v.visit_date DESC, v.visit_time DESC
+        """, (mother_id,))
+        past_visits = cursor.fetchall()
+
+        return render_template('Mother/visits.html',
+                             chw=chw,
+                             upcoming_visits=upcoming_visits,
+                             past_visits=past_visits)
 
     except mysql.connector.Error as err:
         print(f"Database Error: {err}")
-        flash('An error occurred while fetching visits data.', 'error')
-        return render_template('Mother/visits.html', chw=None, visits=[])
+        flash('Error fetching visits data', 'error')
+        return render_template('Mother/visits.html',
+                             chw=None,
+                             upcoming_visits=[],
+                             past_visits=[])
 
     finally:
         if cursor:
@@ -1599,6 +1818,7 @@ def assign_chw():
         if connection:
             connection.close()
 
+# delete chwassignment
 @app.route('/admin/assign-chw/delete/<int:assignment_id>', methods=['POST'])
 @login_required
 def delete_assignment(assignment_id):
@@ -1625,7 +1845,7 @@ def delete_assignment(assignment_id):
             connection.close()
             
     return redirect(url_for('assign_chw'))
-
+# delete meal plan
 @app.route('/chw/meal_plan/delete/<int:meal_id>', methods=['POST'])
 @login_required
 def delete_meal_plan(meal_id):
@@ -1665,6 +1885,47 @@ def delete_meal_plan(meal_id):
             connection.close()
             
     return redirect(url_for('chw_meal_plan'))
+
+# add visits
+@app.route('/chw/visit/add', methods=['POST'])
+@login_required
+def add_visit():
+    if session.get('user_type') != 'chw':
+        flash('Unauthorized access', 'error')
+        return redirect(url_for('login'))
+    
+    connection = None
+    cursor = None
+    try:
+        connection = mysql.connector.connect(**db_config)
+        cursor = connection.cursor()
+
+        mother_id = request.form.get('mother_id')
+        visit_date = request.form.get('visit_date')
+        visit_time = request.form.get('visit_time')
+        purpose = request.form.get('purpose')
+        visit_type = request.form.get('visit_type', 'Routine')
+        
+        cursor.execute("""
+            INSERT INTO visits 
+            (mother_id, chw_id, visit_date, visit_time, purpose, visit_type, status)
+            VALUES (%s, %s, %s, %s, %s, %s, 'Scheduled')
+        """, (mother_id, session['user_id'], visit_date, visit_time, purpose, visit_type))
+        
+        connection.commit()
+        flash('Visit scheduled successfully', 'success')
+        
+    except mysql.connector.Error as err:
+        print(f"Database Error: {err}")
+        flash('Error scheduling visit', 'error')
+    
+    finally:
+        if cursor:
+            cursor.close()
+        if connection and connection.is_connected():
+            connection.close()
+    
+    return redirect(url_for('chw_visits'))
 
 if __name__ == '__main__':
     app.run(debug=True)
