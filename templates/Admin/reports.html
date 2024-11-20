@@ -36,20 +36,20 @@
         <!-- Add Tab Navigation -->
         <ul class="nav nav-tabs mb-4">
             <li class="nav-item">
-                <a class="nav-link active" data-bs-toggle="tab" href="#reports">Reports Dashboard</a>
+                <a class="nav-link active" data-bs-toggle="tab" href="#overview">Overview</a>
             </li>
             <li class="nav-item">
-                <a class="nav-link" data-bs-toggle="tab" href="#exports">Exported Files</a>
+                <a class="nav-link" data-bs-toggle="tab" href="#visits">Visits</a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" data-bs-toggle="tab" href="#chw-performance">CHW Performance</a>
             </li>
         </ul>
 
-        <!-- Tab Content -->
         <div class="tab-content">
-            <!-- Reports Tab -->
-            <div class="tab-pane fade show active" id="reports">
-                <h2>System Reports</h2>
-
-                <!-- Registration Trends -->
+            <!-- Overview Tab -->
+            <div class="tab-pane fade show active" id="overview">
+                <!-- Registration Statistics -->
                 <div class="row mb-4">
                     <div class="col-md-6">
                         <div class="card">
@@ -62,125 +62,146 @@
                     <div class="col-md-6">
                         <div class="card">
                             <div class="card-body">
-                                <h5 class="card-title">Visit Statistics</h5>
-                                <canvas id="visitChart"></canvas>
+                                <h5 class="card-title">Mother-CHW Assignments</h5>
+                                <div class="text-center">
+                                    <h3>{{ assignment_stats.total_assignments }}</h3>
+                                    <p>Total Assignments</p>
+                                    <div class="row mt-3">
+                                        <div class="col-6">
+                                            <h4>{{ assignment_stats.unique_mothers }}</h4>
+                                            <p>Mothers Assigned</p>
+                                        </div>
+                                        <div class="col-6">
+                                            <h4>{{ assignment_stats.unique_chws }}</h4>
+                                            <p>Active CHWs</p>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
-                </div>
-
-                <!-- Detailed Statistics -->
-                <div class="row">
-                    <div class="col-md-12">
-                        <div class="card">
-                            <div class="card-body">
-                                <h5 class="card-title">Monthly Registration Details</h5>
-                                <table class="table table-striped">
-                                    <thead>
-                                        <tr>
-                                            <th>Month</th>
-                                            <th>Total Users</th>
-                                            <th>Mothers</th>
-                                            <th>CHWs</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {% for stat in registration_stats %}
-                                        <tr>
-                                            <td>{{ stat.month }}</td>
-                                            <td>{{ stat.total }}</td>
-                                            <td>{{ stat.mothers }}</td>
-                                            <td>{{ stat.chws }}</td>
-                                        </tr>
-                                        {% endfor %}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Export Options -->
-                <div class="mt-4">
-                    <button class="btn btn-primary" onclick="exportToPDF()">Export to PDF</button>
-                    <button class="btn btn-success" onclick="exportToExcel()">Export to Excel</button>
                 </div>
             </div>
 
-            <!-- Exports Tab -->
-            <div class="tab-pane fade" id="exports">
-                <h2>Exported Files</h2>
+            <!-- Visits Tab -->
+            <div class="tab-pane fade" id="visits">
                 <div class="card">
                     <div class="card-body">
-                        <table class="table">
-                            <thead>
-                                <tr>
-                                    <th>Filename</th>
-                                    <th>Date Generated</th>
-                                    <th>Size</th>
-                                    <th>Action</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for file in files %}
-                                <tr>
-                                    <td>{{ file.name }}</td>
-                                    <td>{{ file.date }}</td>
-                                    <td>{{ file.size }}</td>
-                                    <td>
-                                        <a href="{{ url_for('static', filename='exports/' + file.name) }}" 
-                                           class="btn btn-sm btn-primary">Download</a>
-                                    </td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
+                        <h5 class="card-title">Visit Statistics</h5>
+                        <div class="table-responsive">
+                            <table class="table table-striped">
+                                <thead>
+                                    <tr>
+                                        <th>Visit Type</th>
+                                        <th>Total Visits</th>
+                                        <th>Unique Mothers</th>
+                                        <th>Completion Rate</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for stat in visit_stats %}
+                                    <tr>
+                                        <td>{{ stat.visit_type }}</td>
+                                        <td>{{ stat.total_visits }}</td>
+                                        <td>{{ stat.unique_mothers }}</td>
+                                        <td>{{ "%.1f"|format(stat.completed_visits / stat.total_visits * 100) }}%</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- CHW Performance Tab -->
+            <div class="tab-pane fade" id="chw-performance">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">CHW Performance Overview</h5>
+                        <div class="table-responsive">
+                            <table class="table table-striped">
+                                <thead>
+                                    <tr>
+                                        <th>CHW Name</th>
+                                        <th>Total Visits</th>
+                                        <th>Mothers Attended</th>
+                                        <th>Meal Plans Created</th>
+                                        <th>Workout Plans Created</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for chw in chw_performance %}
+                                    <tr>
+                                        <td>{{ chw.chw_name }}</td>
+                                        <td>{{ chw.total_visits }}</td>
+                                        <td>{{ chw.mothers_attended }}</td>
+                                        <td>{{ chw.meal_plans_created }}</td>
+                                        <td>{{ chw.workout_plans_created }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
     </div>
 
+    <div class="container mt-4">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Export Reports</h5>
+                <div class="btn-group" role="group">
+                    <a href="{{ url_for('export_excel') }}" class="btn btn-success">
+                        <i class="bi bi-file-excel"></i> Export to Excel
+                    </a>
+                    <a href="{{ url_for('export_pdf') }}" class="btn btn-danger">
+                        <i class="bi bi-file-pdf"></i> Export to PDF
+                    </a>
+                    <a href="{{ url_for('export_report', report_type='chw_performance') }}" class="btn btn-primary">
+                        <i class="bi bi-file-text"></i> Export CHW Performance
+                    </a>
+                </div>
+                <a href="{{ url_for('view_exports') }}" class="btn btn-secondary">
+                    <i class="bi bi-folder"></i> View All Exports
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>
-        // Registration Chart
-        const regCtx = document.getElementById('registrationChart').getContext('2d');
-        new Chart(regCtx, {
+    document.addEventListener('DOMContentLoaded', function() {
+        // Registration Trends Chart
+        const registrationCtx = document.getElementById('registrationChart').getContext('2d');
+        new Chart(registrationCtx, {
             type: 'line',
             data: {
                 labels: {{ registration_stats|map(attribute='month')|list|tojson }},
                 datasets: [{
-                    label: 'Total Users',
-                    data: {{ registration_stats|map(attribute='total')|list|tojson }},
-                    borderColor: 'rgb(75, 192, 192)',
+                    label: 'Mothers',
+                    data: {{ registration_stats|map(attribute='mothers')|list|tojson }},
+                    borderColor: 'rgb(255, 99, 132)',
+                    tension: 0.1
+                }, {
+                    label: 'CHWs',
+                    data: {{ registration_stats|map(attribute='chws')|list|tojson }},
+                    borderColor: 'rgb(54, 162, 235)',
                     tension: 0.1
                 }]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    y: {
+                        beginAtZero: true
+                    }
+                }
             }
         });
-
-        // Visit Chart
-        const visitCtx = document.getElementById('visitChart').getContext('2d');
-        new Chart(visitCtx, {
-            type: 'pie',
-            data: {
-                labels: {{ visit_stats|map(attribute='visit_type')|list|tojson }},
-                datasets: [{
-                    data: {{ visit_stats|map(attribute='total')|list|tojson }},
-                    backgroundColor: [
-                        'rgb(255, 99, 132)',
-                        'rgb(54, 162, 235)',
-                        'rgb(255, 205, 86)'
-                    ]
-                }]
-            }
-        });
-
-        function exportToPDF() {
-            window.location.href = "{{ url_for('export_pdf') }}";
-        }
-
-        function exportToExcel() {
-            window.location.href = "{{ url_for('export_excel') }}";
-        }
+    });
     </script>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>

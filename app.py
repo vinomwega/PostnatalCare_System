@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify, send_file
+from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify, send_file, send_from_directory
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_mail import Mail, Message
 import mysql.connector
@@ -11,6 +11,10 @@ from io import BytesIO #for pdf generation
 from reportlab.pdfgen import canvas #for pdf generation
 from datetime import datetime #for date and time
 from xlsxwriter import Workbook #for excel generation
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 
 
 
@@ -221,40 +225,60 @@ def mother_dashboard():
 @app.route('/chw/dashboard')
 @login_required
 def chw_dashboard():
-    if session.get('user_type') != 'chw':
-        flash('Unauthorized access', 'error')
+    if session['user_type'] != 'chw':
         return redirect(url_for('login'))
     
-    connection = get_db_connection()
-    cursor = connection.cursor(dictionary=True)
-    
+    connection = None
+    cursor = None
     try:
-        # Get assigned mothers
+        connection = mysql.connector.connect(**db_config)
+        cursor = connection.cursor(dictionary=True)
+        
+        # First get the CHW's details
         cursor.execute("""
-            SELECT u.* FROM users u
+            SELECT username, email 
+            FROM users 
+            WHERE id = %s
+        """, (session['user_id'],))
+        chw_details = cursor.fetchone()
+        
+        # Get assigned mothers with their next visits
+        cursor.execute("""
+            SELECT 
+                u.id, u.username, u.email,
+                mc.created_at as assignment_date,
+                (SELECT visit_date FROM visits 
+                 WHERE mother_id = u.id 
+                 AND visit_date > NOW() 
+                 ORDER BY visit_date ASC 
+                 LIMIT 1) as next_visit
+            FROM users u
             JOIN mother_chw mc ON u.id = mc.mother_id
-            WHERE mc.chw_id = %s AND u.user_type = 'mother'
+            WHERE mc.chw_id = %s
+            ORDER BY mc.created_at DESC
         """, (session['user_id'],))
         
         assigned_mothers = cursor.fetchall()
         
-        return render_template('CHW/chw_dashboard.html', 
-                             username=session.get('username'),
+        return render_template('CHW/chw_dashboard.html',
+                             chw_name=chw_details['username'],
                              assigned_mothers=assigned_mothers)
-
+                             
     except mysql.connector.Error as err:
         print(f"Database Error: {err}")
-        flash('Error fetching dashboard data', 'error')
-        return render_template('CHW/chw_dashboard.html', 
-                             username=session.get('username'),
+        flash('Error loading dashboard', 'error')
+        return render_template('CHW/chw_dashboard.html',
+                             chw_name="CHW",
                              assigned_mothers=[])
 
     finally:
-        cursor.close()
-        connection.close()
+        if cursor:
+            cursor.close()
+        if connection and connection.is_connected():
+            connection.close()
 
 #chw meal plan
-@app.route('/chw/chw_meal_plan')
+@app.route('/chw/chw_meal_plan', methods=['GET', 'POST'])
 @login_required
 def chw_meal_plan():
     if session.get('user_type') != 'chw':
@@ -264,32 +288,44 @@ def chw_meal_plan():
     connection = None
     cursor = None
     try:
-        connection = mysql.connector.connect(
-            host='localhost',
-            user='root',
-            password='',
-            database='postnatalcare_system'
-        )
+        connection = mysql.connector.connect(**db_config)
         cursor = connection.cursor(dictionary=True)
 
-        # Debug print
-        print(f"CHW ID from session: {session.get('user_id')}")
+        if request.method == 'POST':
+            # Get form data
+            meal_id = request.form.get('meal_id')
+            mother_id = request.form.get('mother_id')
+            meal_type = request.form.get('meal_type')
+            description = request.form.get('description')
+            start_date = request.form.get('start_date')
+            end_date = request.form.get('end_date')
 
-        # First, check if the CHW has any assigned mothers
+            if meal_id:  # Update existing meal plan
+                cursor.execute("""
+                    UPDATE meal_plans 
+                    SET mother_id = %s, meal_type = %s, description = %s, 
+                        start_date = %s, end_date = %s 
+                    WHERE id = %s
+                """, (mother_id, meal_type, description, start_date, end_date, meal_id))
+                flash('Meal plan updated successfully', 'success')
+            else:  # Create new meal plan
+                cursor.execute("""
+                    INSERT INTO meal_plans 
+                    (mother_id, meal_type, description, start_date, end_date, created_at)
+                    VALUES (%s, %s, %s, %s, %s, NOW())
+                """, (mother_id, meal_type, description, start_date, end_date))
+                flash('Meal plan created successfully', 'success')
+            
+            connection.commit()
+
+        # Get all assigned mothers
         cursor.execute("""
-            SELECT COUNT(*) as mother_count
-            FROM mother_chw
-            WHERE chw_id = %s
+            SELECT u.id, u.username 
+            FROM users u
+            JOIN mother_chw mc ON u.id = mc.mother_id
+            WHERE mc.chw_id = %s AND u.user_type = 'mother'
         """, (session['user_id'],))
-        
-        mother_count = cursor.fetchone()['mother_count']
-        print(f"Assigned mothers count: {mother_count}")
-
-        if mother_count == 0:
-            flash('No mothers assigned to you yet.', 'info')
-            return render_template('CHW/chw_meal_plan.html', 
-                                 meal_plans=[],
-                                 mothers=[])
+        mothers = cursor.fetchall()
 
         # Get meal plans for assigned mothers
         cursor.execute("""
@@ -299,45 +335,31 @@ def chw_meal_plan():
                 mp.description,
                 mp.start_date,
                 mp.end_date,
-                u.username as mother_name,
-                u.id as mother_id
-            FROM users u
+                mp.mother_id,
+                u.username as mother_name
+            FROM meal_plans mp
+            JOIN users u ON mp.mother_id = u.id
             JOIN mother_chw mc ON u.id = mc.mother_id
-            LEFT JOIN meal_plans mp ON u.id = mp.mother_id
-            WHERE mc.chw_id = %s AND u.user_type = 'mother'
+            WHERE mc.chw_id = %s
             ORDER BY mp.created_at DESC
         """, (session['user_id'],))
-        
         meal_plans = cursor.fetchall()
-        print(f"Fetched meal plans: {meal_plans}")
 
-        # Get list of mothers for the dropdown
-        cursor.execute("""
-            SELECT u.id, u.username 
-            FROM users u
-            JOIN mother_chw mc ON u.id = mc.mother_id
-            WHERE mc.chw_id = %s AND u.user_type = 'mother'
-        """, (session['user_id'],))
-        
-        mothers = cursor.fetchall()
-        print(f"Fetched mothers: {mothers}")
-        
         return render_template('CHW/chw_meal_plan.html', 
                              meal_plans=meal_plans,
                              mothers=mothers)
 
     except mysql.connector.Error as err:
         print(f"Database Error: {err}")
-        flash(f'Database error: {str(err)}', 'error')
-        return render_template('CHW/meal_plan.html', 
-                             meal_plans=[],
-                             mothers=[])
+        flash('Error managing meal plans', 'error')
+        return redirect(url_for('chw_dashboard'))
 
     finally:
         if cursor:
             cursor.close()
         if connection and connection.is_connected():
             connection.close()
+
 
 #chw workout plan
 @app.route('/chw/chw_workout_plan')
@@ -346,6 +368,7 @@ def chw_workout_plan():
     if session.get('user_type') != 'chw':
         flash('Unauthorized access', 'error')
         return redirect(url_for('login'))
+        
     
     
     connection = get_db_connection()
@@ -530,20 +553,37 @@ def admin_dashboard():
         # Get user counts
         cursor.execute("""
             SELECT 
-                SUM(CASE WHEN user_type = 'mother' THEN 1 ELSE 0 END) as mother_count,
-                SUM(CASE WHEN user_type = 'chw' THEN 1 ELSE 0 END) as chw_count,
-                COUNT(*) as total_users
+                COUNT(CASE WHEN user_type = 'mother' THEN 1 END) as total_mothers,
+                COUNT(CASE WHEN user_type = 'chw' THEN 1 END) as total_chws
             FROM users
         """)
-        stats = cursor.fetchone()
-
-        return render_template('Admin/admin_dashboard.html', stats=stats)
-
+        stats = cursor.fetchone()  # Changed from user_stats to stats
+        
+        cursor.execute("SELECT COUNT(*) as total_visits FROM visits")
+        visit_stats = cursor.fetchone()
+        
+        # New query for recent users
+        cursor.execute("""
+            SELECT username, email, user_type, created_at
+            FROM users
+            WHERE user_type IN ('mother', 'chw')
+            ORDER BY created_at DESC
+            LIMIT 5
+        """)
+        recent_users = cursor.fetchall()
+        
+        return render_template('Admin/admin_dashboard.html',
+                             stats=stats,  # Changed from user_stats to stats
+                             visit_stats=visit_stats,
+                             recent_users=recent_users)
+                             
     except mysql.connector.Error as err:
         print(f"Database Error: {err}")
         flash('Error loading dashboard data', 'error')
         return render_template('Admin/admin_dashboard.html', 
-                             stats={'mother_count': 0, 'chw_count': 0, 'total_users': 0})
+                             stats={'total_mothers': 0, 'total_chws': 0},  # Match the structure
+                             visit_stats={'total_visits': 0},
+                             recent_users=[])
 
     finally:
         if cursor:
@@ -1092,40 +1132,57 @@ def reports():
         cursor.execute("""
             SELECT 
                 visit_type,
-                COUNT(*) as total,
-                COUNT(DISTINCT mother_id) as unique_mothers
+                COUNT(*) as total_visits,
+                COUNT(DISTINCT mother_id) as unique_mothers,
+                SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_visits
             FROM visits
+            WHERE visit_date >= DATE_SUB(NOW(), INTERVAL 6 MONTH)
             GROUP BY visit_type
         """)
         visit_stats = cursor.fetchall()
-
-        # Get exported files
-        files = []
-        for filename in os.listdir(EXPORT_DIR):
-            file_path = os.path.join(EXPORT_DIR, filename)
-            files.append({
-                'name': filename,
-                'date': datetime.fromtimestamp(os.path.getctime(file_path)).strftime('%Y-%m-%d %H:%M:%S'),
-                'size': f"{os.path.getsize(file_path) / 1024:.1f} KB"
-            })
         
-        return render_template('Admin/reports.html', 
+        # Get CHW performance metrics
+        cursor.execute("""
+            SELECT 
+                u.username as chw_name,
+                COUNT(v.id) as total_visits,
+                COUNT(DISTINCT v.mother_id) as mothers_attended,
+                COUNT(DISTINCT mp.mother_id) as meal_plans_created,
+                COUNT(DISTINCT wp.mother_id) as workout_plans_created
+            FROM users u
+            LEFT JOIN visits v ON u.id = v.chw_id
+            LEFT JOIN meal_plans mp ON u.id = mp.mother_id
+            LEFT JOIN workout_plans wp ON u.id = wp.mother_id
+            WHERE u.user_type = 'chw'
+            GROUP BY u.id, u.username
+        """)
+        chw_performance = cursor.fetchall()
+        
+        # Get mother-CHW assignment stats
+        cursor.execute("""
+            SELECT 
+                COUNT(*) as total_assignments,
+                COUNT(DISTINCT mother_id) as unique_mothers,
+                COUNT(DISTINCT chw_id) as unique_chws
+            FROM mother_chw
+        """)
+        assignment_stats = cursor.fetchone()
+        
+        return render_template('Admin/reports.html',
                              registration_stats=registration_stats,
                              visit_stats=visit_stats,
-                             files=files)
+                             chw_performance=chw_performance,
+                             assignment_stats=assignment_stats)
                              
     except mysql.connector.Error as err:
         print(f"Database Error: {err}")
         flash('Error generating reports', 'error')
-        return render_template('Admin/reports.html', 
-                             registration_stats=[],
-                             visit_stats=[],
-                             files=[])
+        return render_template('Admin/reports.html')
         
     finally:
         if cursor:
             cursor.close()
-        if connection and connection.is_connected():
+        if connection:
             connection.close()
 
 #export reports routes
@@ -1143,32 +1200,59 @@ def export_excel():
         return redirect(url_for('login'))
     
     try:
-        connection = mysql.connector.connect(
-            host='localhost',
-            user='root',
-            password='',
-            database='postnatalcare_system'
-        )
+        connection = mysql.connector.connect(**db_config)
         
-        # Get user data
+        # Create a new Excel writer object
+        filename = f'maternal_care_report_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
+        filepath = os.path.join(EXPORT_DIR, filename)
+        
+        writer = pd.ExcelWriter(filepath, engine='xlsxwriter')
+        
+        # User Registration Data
         df_users = pd.read_sql("""
             SELECT username, email, user_type, created_at
             FROM users
             ORDER BY created_at DESC
         """, connection)
+        df_users.to_excel(writer, sheet_name='Users', index=False)
         
-        # Generate filename with timestamp
-        filename = f'maternal_care_report_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
-        file_path = os.path.join(EXPORT_DIR, filename)
+        # Visit Statistics
+        df_visits = pd.read_sql("""
+            SELECT 
+                v.visit_type,
+                v.visit_date,
+                v.status,
+                u_m.username as mother_name,
+                u_c.username as chw_name
+            FROM visits v
+            JOIN users u_m ON v.mother_id = u_m.id
+            JOIN users u_c ON v.chw_id = u_c.id
+            ORDER BY v.visit_date DESC
+        """, connection)
+        df_visits.to_excel(writer, sheet_name='Visits', index=False)
         
-        print(f"Saving Excel file to: {file_path}")  # Debug print
+        # CHW Performance
+        df_chw = pd.read_sql("""
+            SELECT 
+                u.username as chw_name,
+                COUNT(v.id) as total_visits,
+                COUNT(DISTINCT v.mother_id) as mothers_attended,
+                COUNT(DISTINCT mp.mother_id) as meal_plans_created,
+                COUNT(DISTINCT wp.mother_id) as workout_plans_created
+            FROM users u
+            LEFT JOIN visits v ON u.id = v.chw_id
+            LEFT JOIN meal_plans mp ON u.id = mp.mother_id
+            LEFT JOIN workout_plans wp ON u.id = wp.mother_id
+            WHERE u.user_type = 'chw'
+            GROUP BY u.id, u.username
+        """, connection)
+        df_chw.to_excel(writer, sheet_name='CHW Performance', index=False)
         
-        # Save to server
-        df_users.to_excel(file_path, index=False)
+        writer.close()
         
         # Send file to user
         return send_file(
-            file_path,
+            filepath,
             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             as_attachment=True,
             download_name=filename
@@ -1178,6 +1262,10 @@ def export_excel():
         print(f"Export Error: {e}")  # Debug print
         flash('Error exporting data', 'error')
         return redirect(url_for('reports'))
+    
+    finally:
+        if connection:
+            connection.close()
 
 #export pdf
 @app.route('/admin/export/pdf')
@@ -1186,29 +1274,44 @@ def export_pdf():
     if session['user_type'] != 'admin':
         return redirect(url_for('login'))
     
+    connection = None
+    cursor = None
     try:
         # Generate filename with timestamp
         filename = f'maternal_care_report_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf'
-        file_path = os.path.join(EXPORT_DIR, filename)
+        filepath = os.path.join(EXPORT_DIR, filename)
         
-        print(f"Saving PDF file to: {file_path}")  # Debug print
+        # Ensure exports directory exists
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
         
-        # Create PDF
-        p = canvas.Canvas(file_path)
-        
-        # Add content to PDF
-        p.drawString(100, 750, "Maternal Care System Report")
-        p.drawString(100, 700, f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        
-        # Add statistics
-        connection = mysql.connector.connect(
-            host='localhost',
-            user='root',
-            password='',
-            database='postnatalcare_system'
+        # Create the PDF document using filename
+        doc = SimpleDocTemplate(
+            filepath,  # Using filepath instead of buffer
+            pagesize=letter,
+            rightMargin=72,
+            leftMargin=72,
+            topMargin=72,
+            bottomMargin=72
         )
+        
+        # Container for the 'Flowable' objects
+        elements = []
+        
+        # Get styles
+        styles = getSampleStyleSheet()
+        
+        # Add title and date
+        elements.append(Paragraph("Maternal Care System Report", styles['Heading1']))
+        elements.append(Spacer(1, 12))
+        elements.append(Paragraph(f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
+        elements.append(Spacer(1, 20))
+        
+        # Get database connection
+        connection = mysql.connector.connect(**db_config)
         cursor = connection.cursor(dictionary=True)
         
+        # User Statistics
+        elements.append(Paragraph("User Statistics", styles['Heading2']))
         cursor.execute("""
             SELECT 
                 COUNT(*) as total,
@@ -1218,15 +1321,67 @@ def export_pdf():
         """)
         stats = cursor.fetchone()
         
-        p.drawString(100, 650, f"Total Users: {stats['total']}")
-        p.drawString(100, 630, f"Total Mothers: {stats['mothers']}")
-        p.drawString(100, 610, f"Total CHWs: {stats['chws']}")
+        # Create user statistics table
+        user_data = [
+            ['Category', 'Count'],
+            ['Total Users', stats['total']],
+            ['Total Mothers', stats['mothers']],
+            ['Total CHWs', stats['chws']]
+        ]
         
-        p.save()
+        user_table = Table(user_data, colWidths=[200, 100])
+        user_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 12),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black)
+        ]))
+        elements.append(user_table)
+        elements.append(Spacer(1, 20))
         
-        # Send file to user
+        # Visit Statistics
+        elements.append(Paragraph("Visit Statistics", styles['Heading2']))
+        cursor.execute("""
+            SELECT 
+                visit_type,
+                COUNT(*) as total,
+                COUNT(DISTINCT mother_id) as unique_mothers
+            FROM visits
+            GROUP BY visit_type
+        """)
+        visit_stats = cursor.fetchall()
+        
+        if visit_stats:
+            visit_data = [['Visit Type', 'Total Visits', 'Unique Mothers']]
+            for stat in visit_stats:
+                visit_data.append([
+                    stat['visit_type'],
+                    stat['total'],
+                    stat['unique_mothers']
+                ])
+            
+            visit_table = Table(visit_data, colWidths=[150, 100, 100])
+            visit_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 12),
+                ('GRID', (0, 0), (-1, -1), 1, colors.black)
+            ]))
+            elements.append(visit_table)
+        else:
+            elements.append(Paragraph("No visit data available", styles['Normal']))
+        
+        # Build PDF
+        doc.build(elements)
+        
+        # Return the file
         return send_file(
-            file_path,
+            filepath,
             mimetype='application/pdf',
             as_attachment=True,
             download_name=filename
@@ -1236,6 +1391,12 @@ def export_pdf():
         print(f"Export Error: {e}")  # Debug print
         flash('Error exporting data', 'error')
         return redirect(url_for('reports'))
+        
+    finally:
+        if cursor:
+            cursor.close()
+        if connection:
+            connection.close()
 
 # Optional: Add a route to view all exports
 @app.route('/admin/exports')
@@ -1245,15 +1406,265 @@ def view_exports():
         return redirect(url_for('login'))
         
     files = []
-    for filename in os.listdir(EXPORT_DIR):
-        file_path = os.path.join(EXPORT_DIR, filename)
-        files.append({
-            'name': filename,
-            'date': datetime.fromtimestamp(os.path.getctime(file_path)).strftime('%Y-%m-%d %H:%M:%S'),
-            'size': f"{os.path.getsize(file_path) / 1024:.1f} KB"
-        })
-    
+    try:
+        # Ensure export directory exists
+        if not os.path.exists(EXPORT_DIR):
+            os.makedirs(EXPORT_DIR)
+            
+        # Get list of files
+        for filename in os.listdir(EXPORT_DIR):
+            file_path = os.path.join(EXPORT_DIR, filename)
+            if os.path.isfile(file_path):
+                files.append({
+                    'name': filename,
+                    'date': datetime.fromtimestamp(os.path.getctime(file_path)).strftime('%Y-%m-%d %H:%M:%S'),
+                    'size': f"{os.path.getsize(file_path) / 1024:.1f} KB"
+                })
+        
+        # Sort files by date (newest first)
+        files.sort(key=lambda x: x['date'], reverse=True)
+        
+    except Exception as e:
+        print(f"Error listing exports: {e}")
+        flash('Error accessing export files', 'error')
+        
     return render_template('Admin/exports.html', files=files)
+
+@app.route('/admin/exports/download/<filename>')
+@login_required
+def download_export(filename):
+    if session['user_type'] != 'admin':
+        return redirect(url_for('login'))
+    
+    try:
+        return send_from_directory(
+            EXPORT_DIR,
+            filename,
+            as_attachment=True
+        )
+    except Exception as e:
+        flash('Error downloading file', 'error')
+        return redirect(url_for('view_exports'))
+
+@app.route('/admin/exports/delete/<filename>', methods=['POST'])
+@login_required
+def delete_export(filename):
+    if session['user_type'] != 'admin':
+        return redirect(url_for('login'))
+    
+    try:
+        file_path = os.path.join(EXPORT_DIR, secure_filename(filename))
+        if os.path.exists(file_path):
+            os.remove(file_path)
+            flash('File deleted successfully', 'success')
+        else:
+            flash('File not found', 'error')
+    except Exception as e:
+        flash('Error deleting file', 'error')
+        
+    return redirect(url_for('view_exports'))
+
+@app.route('/admin/export_report/<report_type>')
+@login_required
+def export_report(report_type):
+    if session['user_type'] != 'admin':
+        return redirect(url_for('login'))
+        
+    try:
+        connection = mysql.connector.connect(
+            host='localhost',
+            user='root',
+            password='',
+            database='postnatalcare_system'
+        )
+        cursor = connection.cursor(dictionary=True)
+        
+        if report_type == 'chw_performance':
+            cursor.execute("""
+                SELECT 
+                    u.username as chw_name,
+                    COUNT(v.id) as total_visits,
+                    COUNT(DISTINCT v.mother_id) as mothers_attended,
+                    COUNT(DISTINCT mp.mother_id) as meal_plans_created,
+                    COUNT(DISTINCT wp.mother_id) as workout_plans_created
+                FROM users u
+                LEFT JOIN visits v ON u.id = v.chw_id
+                LEFT JOIN meal_plans mp ON u.id = mp.mother_id
+                LEFT JOIN workout_plans wp ON u.id = wp.mother_id
+                WHERE u.user_type = 'chw'
+                GROUP BY u.id, u.username
+            """)
+            data = cursor.fetchall()
+            
+            # Create DataFrame and export to Excel
+            df = pd.DataFrame(data)
+            filename = f'chw_performance_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
+            filepath = os.path.join(app.static_folder, 'exports', filename)
+            
+            # Ensure exports directory exists
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
+            
+            # Export to Excel
+            df.to_excel(filepath, index=False)
+            
+            return send_file(filepath, as_attachment=True)
+            
+    except Exception as e:
+        flash(f'Error exporting report: {str(e)}', 'error')
+        return redirect(url_for('reports'))
+        
+    finally:
+        if cursor:
+            cursor.close()
+        if connection:
+            connection.close()
+
+#assign chw routes
+@app.route('/admin/assign-chw', methods=['GET', 'POST'])
+@login_required
+def assign_chw():
+    if session['user_type'] != 'admin':
+        return redirect(url_for('login'))
+    
+    connection = None
+    cursor = None
+    try:
+        connection = mysql.connector.connect(**db_config)
+        cursor = connection.cursor(dictionary=True)
+        
+        if request.method == 'POST':
+            mother_id = request.form.get('mother_id')
+            chw_id = request.form.get('chw_id')
+            
+            # Check if mother already has a CHW assigned
+            cursor.execute("""
+                SELECT * FROM mother_chw 
+                WHERE mother_id = %s
+            """, (mother_id,))
+            
+            existing = cursor.fetchone()
+            if existing:
+                flash('This mother already has a CHW assigned', 'warning')
+            else:
+                # Create new assignment
+                cursor.execute("""
+                    INSERT INTO mother_chw (mother_id, chw_id, created_at)
+                    VALUES (%s, %s, NOW())
+                """, (mother_id, chw_id))
+                connection.commit()
+                flash('CHW assigned successfully', 'success')
+        
+        # Get current assignments
+        cursor.execute("""
+            SELECT mc.id, mc.created_at,
+                   m.username as mother_name,
+                   c.username as chw_name
+            FROM mother_chw mc
+            JOIN users m ON mc.mother_id = m.id
+            JOIN users c ON mc.chw_id = c.id
+            ORDER BY mc.created_at DESC
+        """)
+        assignments = cursor.fetchall()
+        
+        # Get unassigned mothers
+        cursor.execute("""
+            SELECT id, username 
+            FROM users 
+            WHERE user_type = 'mother'
+            AND id NOT IN (SELECT mother_id FROM mother_chw)
+        """)
+        unassigned_mothers = cursor.fetchall()
+        
+        # Get all CHWs
+        cursor.execute("""
+            SELECT id, username 
+            FROM users 
+            WHERE user_type = 'chw'
+        """)
+        chws = cursor.fetchall()
+        
+        return render_template('Admin/assign_chw.html',
+                             assignments=assignments,
+                             unassigned_mothers=unassigned_mothers,
+                             chws=chws)
+                             
+    except Exception as e:
+        print(f"Database Error: {e}")
+        flash('Error processing request', 'error')
+        return redirect(url_for('admin_dashboard'))
+        
+    finally:
+        if cursor:
+            cursor.close()
+        if connection:
+            connection.close()
+
+@app.route('/admin/assign-chw/delete/<int:assignment_id>', methods=['POST'])
+@login_required
+def delete_assignment(assignment_id):
+    if session['user_type'] != 'admin':
+        return redirect(url_for('login'))
+    
+    try:
+        connection = mysql.connector.connect(**db_config)
+        cursor = connection.cursor()
+        
+        cursor.execute("DELETE FROM mother_chw WHERE id = %s", (assignment_id,))
+        connection.commit()
+        
+        flash('Assignment removed successfully', 'success')
+        
+    except Exception as e:
+        print(f"Database Error: {e}")
+        flash('Error removing assignment', 'error')
+        
+    finally:
+        if cursor:
+            cursor.close()
+        if connection:
+            connection.close()
+            
+    return redirect(url_for('assign_chw'))
+
+@app.route('/chw/meal_plan/delete/<int:meal_id>', methods=['POST'])
+@login_required
+def delete_meal_plan(meal_id):
+    if session.get('user_type') != 'chw':
+        flash('Unauthorized access', 'error')
+        return redirect(url_for('login'))
+    
+    connection = None
+    cursor = None
+    try:
+        connection = mysql.connector.connect(**db_config)
+        cursor = connection.cursor()
+        
+        # Verify the meal plan belongs to one of the CHW's assigned mothers
+        cursor.execute("""
+            SELECT mp.id 
+            FROM meal_plans mp
+            JOIN mother_chw mc ON mp.mother_id = mc.mother_id
+            WHERE mp.id = %s AND mc.chw_id = %s
+        """, (meal_id, session['user_id']))
+        
+        if cursor.fetchone():
+            cursor.execute("DELETE FROM meal_plans WHERE id = %s", (meal_id,))
+            connection.commit()
+            flash('Meal plan deleted successfully', 'success')
+        else:
+            flash('Unauthorized to delete this meal plan', 'error')
+            
+    except mysql.connector.Error as err:
+        print(f"Database Error: {err}")
+        flash('Error deleting meal plan', 'error')
+        
+    finally:
+        if cursor:
+            cursor.close()
+        if connection and connection.is_connected():
+            connection.close()
+            
+    return redirect(url_for('chw_meal_plan'))
 
 if __name__ == '__main__':
     app.run(debug=True)

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Exported Files - Admin Dashboard</title>
+    <title>Assign CHWs - Admin Dashboard</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">
 </head>
@@ -19,13 +19,10 @@
                         <a class="nav-link" href="{{ url_for('admin_dashboard') }}">Dashboard</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="{{ url_for('manage_users') }}">Manage Users</a>
+                        <a class="nav-link active" href="{{ url_for('manage_users') }}">Manage Users</a>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link" href="{{ url_for('reports') }}">Reports</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link active" href="{{ url_for('view_exports') }}">Exports</a>
                     </li>
                     <li class="nav-item">
                         <a class="nav-link" href="{{ url_for('logout') }}">Logout</a>
@@ -38,12 +35,7 @@
     <div class="container mt-4">
         <div class="row mb-4">
             <div class="col">
-                <h2>Exported Files</h2>
-            </div>
-            <div class="col text-end">
-                <a href="{{ url_for('reports') }}" class="btn btn-primary">
-                    <i class="bi bi-plus-circle"></i> Generate New Report
-                </a>
+                <h2>Assign CHWs to Mothers</h2>
             </div>
         </div>
 
@@ -59,61 +51,75 @@
             {% endif %}
         {% endwith %}
 
-        <div class="card">
+        <!-- Current Assignments -->
+        <div class="card mb-4">
             <div class="card-body">
-                {% if files %}
+                <h5 class="card-title">Current Assignments</h5>
                 <div class="table-responsive">
-                    <table class="table table-striped table-hover">
+                    <table class="table table-striped">
                         <thead>
                             <tr>
-                                <th>File Name</th>
-                                <th>Type</th>
-                                <th>Generated Date</th>
-                                <th>Size</th>
+                                <th>Mother</th>
+                                <th>Assigned CHW</th>
+                                <th>Assignment Date</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {% for file in files %}
+                            {% for assignment in assignments %}
                             <tr>
-                                <td>{{ file.name }}</td>
+                                <td>{{ assignment.mother_name }}</td>
+                                <td>{{ assignment.chw_name }}</td>
+                                <td>{{ assignment.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
                                 <td>
-                                    {% if file.name.endswith('.pdf') %}
-                                        <span class="badge bg-danger">PDF</span>
-                                    {% elif file.name.endswith('.xlsx') %}
-                                        <span class="badge bg-success">Excel</span>
-                                    {% else %}
-                                        <span class="badge bg-secondary">Other</span>
-                                    {% endif %}
-                                </td>
-                                <td>{{ file.date }}</td>
-                                <td>{{ file.size }}</td>
-                                <td>
-                                    <div class="btn-group" role="group">
-                                        <a href="{{ url_for('download_export', filename=file.name) }}" 
-                                           class="btn btn-sm btn-primary">
-                                            <i class="bi bi-download"></i> Download
-                                        </a>
-                                        <button type="button" 
-                                                class="btn btn-sm btn-danger" 
-                                                onclick="confirmDelete('{{ file.name }}')">
-                                            <i class="bi bi-trash"></i> Delete
-                                        </button>
-                                    </div>
+                                    <button class="btn btn-sm btn-danger" 
+                                            onclick="confirmDelete({{ assignment.id }})">
+                                        <i class="bi bi-trash"></i> Remove
+                                    </button>
                                 </td>
                             </tr>
                             {% endfor %}
                         </tbody>
                     </table>
                 </div>
-                {% else %}
-                <div class="text-center py-4">
-                    <p class="text-muted">No exported files found.</p>
-                    <a href="{{ url_for('reports') }}" class="btn btn-primary">
-                        Generate Your First Report
-                    </a>
-                </div>
-                {% endif %}
+            </div>
+        </div>
+
+        <!-- New Assignment Form -->
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">New Assignment</h5>
+                <form method="POST" action="{{ url_for('assign_chw') }}">
+                    <div class="row">
+                        <div class="col-md-5">
+                            <div class="form-group">
+                                <label for="mother_id">Select Mother</label>
+                                <select class="form-control" id="mother_id" name="mother_id" required>
+                                    <option value="">Choose a mother...</option>
+                                    {% for mother in unassigned_mothers %}
+                                    <option value="{{ mother.id }}">{{ mother.username }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-5">
+                            <div class="form-group">
+                                <label for="chw_id">Select CHW</label>
+                                <select class="form-control" id="chw_id" name="chw_id" required>
+                                    <option value="">Choose a CHW...</option>
+                                    {% for chw in chws %}
+                                    <option value="{{ chw.id }}">{{ chw.username }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-2">
+                            <button type="submit" class="btn btn-primary mt-4">
+                                <i class="bi bi-plus-circle"></i> Assign
+                            </button>
+                        </div>
+                    </div>
+                </form>
             </div>
         </div>
     </div>
@@ -123,16 +129,16 @@
         <div class="modal-dialog">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title">Confirm Delete</h5>
+                    <h5 class="modal-title">Confirm Removal</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
-                    Are you sure you want to delete this file?
+                    Are you sure you want to remove this assignment?
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <form id="deleteForm" method="POST" style="display: inline;">
-                        <button type="submit" class="btn btn-danger">Delete</button>
+                    <form id="deleteForm" method="POST">
+                        <button type="submit" class="btn btn-danger">Remove</button>
                     </form>
                 </div>
             </div>
@@ -141,10 +147,10 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        function confirmDelete(filename) {
+        function confirmDelete(assignmentId) {
             const modal = new bootstrap.Modal(document.getElementById('deleteModal'));
             const deleteForm = document.getElementById('deleteForm');
-            deleteForm.action = "{{ url_for('delete_export', filename='') }}" + filename;
+            deleteForm.action = `/admin/assign-chw/delete/${assignmentId}`;
             modal.show();
         }
     </script>

@@ -1,0 +1,90 @@
+{% extends "CHW/base.html" %}
+
+{% block content %}
+<div class="content-header">
+    <div class="container-fluid">
+        <h1 class="m-0">Meal Plan for {{ mother.username }}</h1>
+    </div>
+</div>
+
+<section class="content">
+    <div class="container-fluid">
+        <!-- Create Meal Plan Card -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h3 class="card-title">Create New Meal Plan</h3>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    <div class="form-group mb-3">
+                        <label for="meal_type">Meal Type</label>
+                        <input type="text" class="form-control" id="meal_type" name="meal_type" 
+                               required placeholder="e.g., Breakfast, Lunch, Daily Plan">
+                    </div>
+                    <div class="form-group mb-3">
+                        <label for="description">Description</label>
+                        <textarea class="form-control" id="description" name="description" 
+                                  rows="3" required></textarea>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group mb-3">
+                                <label for="start_date">Start Date</label>
+                                <input type="date" class="form-control" id="start_date" 
+                                       name="start_date" required>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group mb-3">
+                                <label for="end_date">End Date</label>
+                                <input type="date" class="form-control" id="end_date" 
+                                       name="end_date" required>
+                            </div>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Create Meal Plan</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Existing Meal Plans -->
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">Existing Meal Plans</h3>
+            </div>
+            <div class="card-body">
+                {% if meal_plans %}
+                <div class="table-responsive">
+                    <table class="table table-bordered table-hover">
+                        <thead>
+                            <tr>
+                                <th>Meal Type</th>
+                                <th>Description</th>
+                                <th>Start Date</th>
+                                <th>End Date</th>
+                                <th>Created At</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for plan in meal_plans %}
+                            <tr>
+                                <td>{{ plan.meal_type }}</td>
+                                <td>{{ plan.description }}</td>
+                                <td>{{ plan.start_date }}</td>
+                                <td>{{ plan.end_date }}</td>
+                                <td>{{ plan.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="alert alert-info">
+                    No meal plans created yet.
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %} 
