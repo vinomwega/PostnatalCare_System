@@ -56,10 +56,10 @@
                                 <td>{{ plan.start_date }}</td>
                                 <td>{{ plan.end_date }}</td>
                                 <td>
-                                    <button class="btn btn-sm btn-warning" 
-                                            onclick="editMealPlan({{ plan|tojson|safe }})"
-                                            data-bs-toggle="modal" 
-                                            data-bs-target="#editMealPlanModal">
+                                    <button class="btn btn-sm btn-primary" 
+                                    onclick="editMealPlan({{ plan.id }})"
+                                    data-bs-toggle="modal" 
+                                    data-bs-target="#editMealPlanModal">
                                         <i class="fas fa-edit"></i> Edit
                                     </button>
                                     <button class="btn btn-sm btn-danger" 
@@ -141,49 +141,43 @@
 
 <!-- Edit Meal Plan Modal -->
 <div class="modal fade" id="editMealPlanModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title">Edit Meal Plan</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <form method="POST" action="{{ url_for('chw_meal_plan') }}">
-                <input type="hidden" id="edit_meal_id" name="meal_id">
+            <form id="editMealPlanForm" method="POST">
                 <div class="modal-body">
-                    <div class="form-group mb-3">
-                        <label for="edit_mother_id">Mother</label>
-                        <select class="form-control" id="edit_mother_id" name="mother_id" required>
-                            {% for mother in mothers %}
-                            <option value="{{ mother.id }}">{{ mother.username }}</option>
-                            {% endfor %}
-                        </select>
+                    <input type="hidden" id="edit_meal_id" name="meal_id">
+                    <div class="mb-3">
+                        <label class="form-label">Mother's Name</label>
+                        <input type="text" class="form-control" id="edit_mother_name" readonly>
                     </div>
-                    <div class="form-group mb-3">
-                        <label for="edit_meal_type">Meal Type</label>
-                        <input type="text" class="form-control" id="edit_meal_type" name="meal_type" required>
+                    <div class="mb-3">
+                        <label class="form-label">Meal Type</label>
+                        <input type="text" class="form-control" id="edit_meal_type" 
+                               name="meal_type" required>
                     </div>
-                    <div class="form-group mb-3">
-                        <label for="edit_description">Description</label>
-                        <textarea class="form-control" id="edit_description" name="description" rows="3" required></textarea>
+                    <div class="mb-3">
+                        <label class="form-label">Description</label>
+                        <textarea class="form-control" id="edit_description" 
+                                name="description" rows="3" required></textarea>
                     </div>
-                    <div class="row">
-                        <div class="col-md-6">
-                            <div class="form-group mb-3">
-                                <label for="edit_start_date">Start Date</label>
-                                <input type="date" class="form-control" id="edit_start_date" name="start_date" required>
-                            </div>
-                        </div>
-                        <div class="col-md-6">
-                            <div class="form-group mb-3">
-                                <label for="edit_end_date">End Date</label>
-                                <input type="date" class="form-control" id="edit_end_date" name="end_date" required>
-                            </div>
-                        </div>
+                    <div class="mb-3">
+                        <label class="form-label">Start Date</label>
+                        <input type="date" class="form-control" id="edit_start_date" 
+                               name="start_date" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">End Date</label>
+                        <input type="date" class="form-control" id="edit_end_date" 
+                               name="end_date" required>
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-primary">Update Meal Plan</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    <button type="submit" class="btn btn-primary">Save Changes</button>
                 </div>
             </form>
         </div>
@@ -211,19 +205,65 @@
     </div>
 </div>
 
+{% block extra_js %}
 <script>
-function editMealPlan(plan) {
-    document.getElementById('edit_meal_id').value = plan.id;
-    document.getElementById('edit_mother_id').value = plan.mother_id;
-    document.getElementById('edit_meal_type').value = plan.meal_type;
-    document.getElementById('edit_description').value = plan.description;
-    document.getElementById('edit_start_date').value = plan.start_date;
-    document.getElementById('edit_end_date').value = plan.end_date;
+function editMealPlan(planId) {
+    fetch(`/chw/get-meal-plan/${planId}`)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.error) {
+                throw new Error(data.error);
+            }
+            
+            // Populate the edit form
+            document.getElementById('edit_meal_type').value = data.meal_type;
+            document.getElementById('edit_description').value = data.description;
+            document.getElementById('edit_start_date').value = data.start_date;
+            document.getElementById('edit_end_date').value = data.end_date;
+            document.getElementById('edit_mother_name').value = data.mother_name;
+            document.getElementById('edit_meal_id').value = data.id;
+            
+            // Show the modal
+            var editModal = new bootstrap.Modal(document.getElementById('editMealPlanModal'));
+            editModal.show();
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Error fetching meal plan details: ' + error.message);
+        });
 }
+
+// Add form submission handler
+document.getElementById('editMealPlanForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const formData = new FormData(this);
+    const mealId = document.getElementById('edit_meal_id').value;
+
+    fetch('/chw/chw_meal_plan', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('Network response was not ok');
+        }
+        window.location.reload();
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error updating meal plan');
+    });
+});
 
 function confirmDelete(mealPlanId) {
     const form = document.getElementById('deleteMealPlanForm');
     form.action = `/chw/meal_plan/delete/${mealPlanId}`;
 }
 </script>
+{% endblock %}
 {% endblock %} 

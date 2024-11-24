@@ -366,7 +366,6 @@ def chw_meal_plan():
 @login_required
 def chw_workout_plan():
     if session.get('user_type') != 'chw':
-        flash('Unauthorized access', 'error')
         return redirect(url_for('login'))
     
     connection = None
@@ -387,17 +386,16 @@ def chw_workout_plan():
             if workout_id:  # Update existing workout plan
                 cursor.execute("""
                     UPDATE workout_plans 
-                    SET mother_id = %s, exercise_type = %s, duration = %s,
-                        frequency = %s, start_date = %s, end_date = %s 
+                    SET exercise_type = %s, duration = %s, frequency = %s,
+                        start_date = %s, end_date = %s 
                     WHERE id = %s
-                """, (mother_id, exercise_type, duration, frequency, 
-                      start_date, end_date, workout_id))
+                """, (exercise_type, duration, frequency, start_date, end_date, workout_id))
                 flash('Workout plan updated successfully', 'success')
             else:  # Create new workout plan
                 cursor.execute("""
                     INSERT INTO workout_plans 
-                    (mother_id, exercise_type, duration, frequency, start_date, end_date)
-                    VALUES (%s, %s, %s, %s, %s, %s)
+                    (mother_id, exercise_type, duration, frequency, start_date, end_date, created_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, NOW())
                 """, (mother_id, exercise_type, duration, frequency, start_date, end_date))
                 flash('Workout plan created successfully', 'success')
             
@@ -414,12 +412,14 @@ def chw_workout_plan():
 
         # Get workout plans for assigned mothers
         cursor.execute("""
-            SELECT wp.*, u.username as mother_name
+            SELECT 
+                wp.*,
+                u.username as mother_name
             FROM workout_plans wp
             JOIN users u ON wp.mother_id = u.id
             JOIN mother_chw mc ON u.id = mc.mother_id
             WHERE mc.chw_id = %s
-            ORDER BY wp.start_date DESC
+            ORDER BY wp.created_at DESC
         """, (session['user_id'],))
         workout_plans = cursor.fetchall()
 
@@ -437,34 +437,45 @@ def chw_workout_plan():
             cursor.close()
         if connection and connection.is_connected():
             connection.close()
+
 #delete workout plan
-@app.route('/chw/workout_plan/delete/<int:workout_id>', methods=['POST'])
+@app.route('/chw/workout_plan/delete/<int:plan_id>', methods=['POST'])
 @login_required
-def delete_workout_plan(workout_id):
+def delete_workout_plan(plan_id):
     if session.get('user_type') != 'chw':
-        flash('Unauthorized access', 'error')
-        return redirect(url_for('login'))
-    
-    connection = None
-    cursor = None
+        return jsonify({'error': 'Unauthorized'}), 403
+        
     try:
         connection = mysql.connector.connect(**db_config)
         cursor = connection.cursor()
         
-        cursor.execute("DELETE FROM workout_plans WHERE id = %s", (workout_id,))
+        # Verify the CHW has access to this workout plan
+        cursor.execute("""
+            SELECT wp.id
+            FROM workout_plans wp
+            JOIN mother_chw mc ON wp.mother_id = mc.mother_id
+            WHERE wp.id = %s AND mc.chw_id = %s
+        """, (plan_id, session['user_id']))
+        
+        if not cursor.fetchone():
+            flash('Unauthorized access to this workout plan', 'error')
+            return redirect(url_for('chw_workout_plan'))
+            
+        # Delete the workout plan
+        cursor.execute("DELETE FROM workout_plans WHERE id = %s", (plan_id,))
         connection.commit()
+        
         flash('Workout plan deleted successfully', 'success')
-    
+        
     except mysql.connector.Error as err:
         print(f"Database Error: {err}")
         flash('Error deleting workout plan', 'error')
-    
     finally:
         if cursor:
             cursor.close()
         if connection and connection.is_connected():
             connection.close()
-    
+            
     return redirect(url_for('chw_workout_plan'))
 
 #add workout plan
@@ -1547,7 +1558,6 @@ def export_pdf():
             ['Total Mothers', stats['mothers']],
             ['Total CHWs', stats['chws']]
         ]
-        
         user_table = Table(user_data, colWidths=[200, 100])
         user_table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
@@ -1926,6 +1936,364 @@ def add_visit():
             connection.close()
     
     return redirect(url_for('chw_visits'))
+
+# Individual mother's meal plan
+@app.route('/chw/meal-plan/<int:mother_id>', methods=['GET', 'POST'])
+@login_required
+def create_mother_meal_plan(mother_id):
+    if session.get('user_type') != 'chw':
+        flash('Unauthorized access', 'error')
+        return redirect(url_for('login'))
+    
+    connection = None
+    cursor = None
+    try:
+        connection = mysql.connector.connect(**db_config)
+        cursor = connection.cursor(dictionary=True)
+        
+        # Get mother's details
+        cursor.execute("""
+            SELECT username 
+            FROM users 
+            WHERE id = %s AND user_type = 'mother'
+        """, (mother_id,))
+        mother = cursor.fetchone()
+        
+        if not mother:
+            flash('Mother not found', 'error')
+            return redirect(url_for('chw_dashboard'))
+            
+        return render_template('CHW/meal_plan.html', mother=mother)
+        
+    except mysql.connector.Error as err:
+        print(f"Database Error: {err}")
+        flash('Error accessing meal plan', 'error')
+        return redirect(url_for('chw_dashboard'))
+        
+    finally:
+        if cursor:
+            cursor.close()
+        if connection and connection.is_connected():
+            connection.close()
+
+# CHW Profile Routes
+@app.route('/chw/profile')
+@login_required
+def chw_profile():
+    if session.get('user_type') != 'chw':
+        return redirect(url_for('login'))
+    
+    connection = None
+    cursor = None
+    try:
+        connection = mysql.connector.connect(**db_config)
+        cursor = connection.cursor(dictionary=True)
+        
+        cursor.execute("""
+            SELECT 
+                u.id,
+                u.username,
+                u.email,
+                u.user_type,
+                u.created_at,
+                u.experience,
+                u.available_hours,
+                (SELECT COUNT(*) FROM mother_chw WHERE chw_id = u.id) as mother_count,
+                (SELECT COUNT(*) 
+                 FROM meal_plans mp
+                 JOIN mother_chw mc ON mp.mother_id = mc.mother_id
+                 WHERE mc.chw_id = u.id AND mp.end_date >= CURDATE()) as meal_plan_count,
+                (SELECT COUNT(*) 
+                 FROM workout_plans wp
+                 JOIN mother_chw mc ON wp.mother_id = mc.mother_id
+                 WHERE mc.chw_id = u.id AND wp.end_date >= CURDATE()) as workout_plan_count,
+                (SELECT COUNT(*) 
+                 FROM visits v
+                 WHERE v.chw_id = u.id 
+                 AND v.visit_date >= CURDATE()
+                 AND v.status = 'Scheduled') as upcoming_visits
+            FROM users u
+            WHERE u.id = %s AND u.user_type = 'chw'
+        """, (session['user_id'],))
+        
+        chw = cursor.fetchone()
+        
+        if not chw:
+            flash('CHW profile not found', 'error')
+            return redirect(url_for('login'))
+            
+        # Create stats dictionary for template compatibility
+        stats = {
+            'mother_count': chw['mother_count'],
+            'meal_plan_count': chw['meal_plan_count'],
+            'workout_plan_count': chw['workout_plan_count'],
+            'upcoming_visits': chw['upcoming_visits']
+        }
+        
+        return render_template('CHW/chw_profile.html', chw=chw, stats=stats)
+        
+    except mysql.connector.Error as err:
+        flash(f'Error accessing profile: {err}', 'error')
+        return redirect(url_for('chw_dashboard'))
+    finally:
+        if cursor:
+            cursor.close()
+        if connection and connection.is_connected():
+            connection.close()
+
+@app.route('/chw/profile/update', methods=['POST'])
+@login_required
+def chw_update_profile():
+    if session.get('user_type') != 'chw':
+        return redirect(url_for('login'))
+    
+    connection = None
+    cursor = None
+    try:
+        connection = mysql.connector.connect(**db_config)
+        cursor = connection.cursor()
+        
+        # Update user details
+        cursor.execute("""
+            UPDATE users 
+            SET username = %s,
+                email = %s,
+                phone = %s,
+                location = %s
+            WHERE id = %s AND user_type = 'chw'
+        """, (
+            request.form['username'],
+            request.form['email'],
+            request.form['phone'],
+            request.form['location'],
+            session['user_id']
+        ))
+        
+        connection.commit()
+        flash('Profile updated successfully', 'success')
+        
+    except mysql.connector.Error as err:
+        flash(f'Error updating profile: {err}', 'error')
+    finally:
+        if cursor:
+            cursor.close()
+        if connection and connection.is_connected():
+            connection.close()
+            
+    return redirect(url_for('chw_profile'))
+
+@app.route('/chw/change-password', methods=['POST'])
+@login_required
+def chw_change_password():
+    if session.get('user_type') != 'chw':
+        return redirect(url_for('login'))
+    
+    if request.form['new_password'] != request.form['confirm_password']:
+        flash('New passwords do not match', 'error')
+        return redirect(url_for('chw_profile'))
+    
+    connection = None
+    cursor = None
+    try:
+        connection = mysql.connector.connect(**db_config)
+        cursor = connection.cursor()
+        
+        # Verify current password
+        cursor.execute("""
+            SELECT password_hash FROM users WHERE id = %s
+        """, (session['user_id'],))
+        current_hash = cursor.fetchone()[0]
+        
+        if not check_password_hash(current_hash, request.form['current_password']):
+            flash('Current password is incorrect', 'error')
+            return redirect(url_for('chw_profile'))
+        
+        # Update password
+        new_password_hash = generate_password_hash(request.form['new_password'])
+        cursor.execute("""
+            UPDATE users 
+            SET password_hash = %s
+            WHERE id = %s
+        """, (new_password_hash, session['user_id']))
+        
+        connection.commit()
+        flash('Password changed successfully', 'success')
+        
+    except mysql.connector.Error as err:
+        flash(f'Error changing password: {err}', 'error')
+    finally:
+        if cursor:
+            cursor.close()
+        if connection and connection.is_connected():
+            connection.close()
+            
+    return redirect(url_for('chw_profile'))
+
+@app.route('/chw/get-meal-plan/<int:plan_id>', methods=['GET'])
+@login_required
+def get_meal_plan_details(plan_id):
+    if session.get('user_type') != 'chw':
+        return jsonify({'error': 'Unauthorized'}), 403
+        
+    try:
+        connection = mysql.connector.connect(**db_config)
+        cursor = connection.cursor(dictionary=True)
+        
+        cursor.execute("""
+            SELECT 
+                mp.id,
+                mp.meal_type,
+                mp.description,
+                DATE_FORMAT(mp.start_date, '%Y-%m-%d') as start_date,
+                DATE_FORMAT(mp.end_date, '%Y-%m-%d') as end_date,
+                mp.mother_id,
+                u.username as mother_name
+            FROM meal_plans mp
+            JOIN users u ON mp.mother_id = u.id
+            JOIN mother_chw mc ON u.id = mc.mother_id
+            WHERE mp.id = %s AND mc.chw_id = %s
+        """, (plan_id, session['user_id']))
+        
+        meal_plan = cursor.fetchone()
+        
+        if meal_plan:
+            return jsonify(meal_plan)
+        return jsonify({'error': 'Meal plan not found'}), 404
+        
+    except mysql.connector.Error as err:
+        return jsonify({'error': str(err)}), 500
+    finally:
+        if cursor:
+            cursor.close()
+        if connection and connection.is_connected():
+            connection.close()
+            
+# update meal plan
+@app.route('/chw/meal-plan/update/<int:plan_id>', methods=['POST'])
+@login_required
+def update_meal_plan(plan_id):
+    if session.get('user_type') != 'chw':
+        return jsonify({'error': 'Unauthorized'}), 403
+        
+    try:
+        connection = mysql.connector.connect(**db_config)
+        cursor = connection.cursor(dictionary=True)
+        
+        # Verify CHW has access to this meal plan
+        cursor.execute("""
+            SELECT 1 FROM meal_plans mp
+            JOIN mother_chw mc ON mp.mother_id = mc.mother_id
+            WHERE mp.id = %s AND mc.chw_id = %s
+        """, (plan_id, session['user_id']))
+        
+        if not cursor.fetchone():
+            flash('Unauthorized access to meal plan', 'error')
+            return redirect(url_for('chw_meal_plan'))
+        
+        # Update meal plan
+        cursor.execute("""
+            UPDATE meal_plans 
+            SET meal_type = %s,
+                description = %s,
+                start_date = %s,
+                end_date = %s
+            WHERE id = %s
+        """, (
+            request.form['meal_type'],
+            request.form['description'],
+            request.form['start_date'],
+            request.form['end_date'],
+            plan_id
+        ))
+        
+        connection.commit()
+        flash('Meal plan updated successfully', 'success')
+        
+    except mysql.connector.Error as err:
+        flash(f'Error updating meal plan: {err}', 'error')
+    finally:
+        cursor.close()
+        connection.close()
+        
+    return redirect(url_for('chw_meal_plan'))
+
+# get workout plan details
+@app.route('/chw/get-workout-plan/<int:plan_id>', methods=['GET'])
+@login_required
+def get_workout_plan_details(plan_id):
+    if session.get('user_type') != 'chw':
+        return jsonify({'error': 'Unauthorized'}), 403
+        
+    try:
+        connection = mysql.connector.connect(**db_config)
+        cursor = connection.cursor(dictionary=True)
+        
+        cursor.execute("""
+            SELECT 
+                wp.id,
+                wp.exercise_type,
+                wp.duration,
+                wp.frequency,
+                DATE_FORMAT(wp.start_date, '%Y-%m-%d') as start_date,
+                DATE_FORMAT(wp.end_date, '%Y-%m-%d') as end_date,
+                wp.mother_id,
+                u.username as mother_name
+            FROM workout_plans wp
+            JOIN users u ON wp.mother_id = u.id
+            JOIN mother_chw mc ON u.id = mc.mother_id
+            WHERE wp.id = %s AND mc.chw_id = %s
+        """, (plan_id, session['user_id']))
+        
+        workout_plan = cursor.fetchone()
+        
+        if workout_plan:
+            return jsonify(workout_plan)
+        return jsonify({'error': 'Workout plan not found'}), 404
+        
+    except mysql.connector.Error as err:
+        return jsonify({'error': str(err)}), 500
+    finally:
+        if cursor:
+            cursor.close()
+        if connection and connection.is_connected():
+            connection.close()
+
+# get visit details 
+@app.route('/chw/get-visit/<int:visit_id>', methods=['GET'])
+@login_required
+def get_visit_details(visit_id):
+    if session.get('user_type') != 'chw':
+        return jsonify({'error': 'Unauthorized'}), 403
+        
+    try:
+        connection = mysql.connector.connect(**db_config)
+        cursor = connection.cursor(dictionary=True)
+        
+        cursor.execute("""
+            SELECT 
+                v.*,
+                u.username as mother_name,
+                DATE_FORMAT(v.visit_date, '%Y-%m-%d') as visit_date,
+                TIME_FORMAT(v.visit_time, '%H:%i') as visit_time
+            FROM visits v
+            JOIN users u ON v.mother_id = u.id
+            JOIN mother_chw mc ON u.id = mc.mother_id
+            WHERE v.id = %s AND mc.chw_id = %s
+        """, (visit_id, session['user_id']))
+        
+        visit = cursor.fetchone()
+        
+        if visit:
+            return jsonify(visit)
+        return jsonify({'error': 'Visit not found'}), 404
+        
+    except mysql.connector.Error as err:
+        return jsonify({'error': str(err)}), 500
+    finally:
+        if cursor:
+            cursor.close()
+        if connection and connection.is_connected():
+            connection.close()
 
 if __name__ == '__main__':
     app.run(debug=True)

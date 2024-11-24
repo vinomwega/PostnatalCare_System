@@ -24,7 +24,7 @@
                                 <th>Email</th>
                                 <th>Assignment Date</th>
                                 <th>Next Visit</th>
-                                <!-- <th>Actions</th> -->
+                                <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -39,14 +39,14 @@
                                     {% else %}
                                         No upcoming visits
                                     {% endif %}
-                                </td><!---
+                                </td>
                                 <td>
                                     <div class="btn-group">
                                         <a href="{{ url_for('chw_visits', mother_id=mother.id) }}" 
                                            class="btn btn-sm btn-primary">
                                             <i class="fas fa-calendar-plus"></i> Schedule Visit
                                         </a>
-                                        <a href="{{ url_for('chw_meal_plan', mother_id=mother.id) }}" 
+                                        <a href="{{ url_for('create_mother_meal_plan', mother_id=mother.id) }}" 
                                            class="btn btn-sm btn-success">
                                             <i class="fas fa-utensils"></i> Meal Plan
                                         </a>
@@ -55,7 +55,7 @@
                                             <i class="fas fa-dumbbell"></i> Workout Plan
                                         </a>
                                     </div>
-                                </td>-->
+                                </td>
                             </tr>
                             {% endfor %}
                         </tbody>
@@ -70,4 +70,4 @@
         </div>
     </div>
 </section>
-{% endblock %} 
+{% endblock %}
