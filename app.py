@@ -587,7 +587,7 @@ def chw_visits():
                 v.id,
                 v.mother_id,
                 u.username as mother_name,
-                DATE_FORMAT(v.visit_date, '%Y-%m-%d') as visit_date,
+                DATE_FORMAT(v.visit_date, '%d-%m-%Y') as visit_date,
                 TIME_FORMAT(v.visit_time, '%H:%i') as visit_time,
                 v.visit_type,
                 v.purpose,
@@ -609,7 +609,7 @@ def chw_visits():
                 v.id,
                 v.mother_id,
                 u.username as mother_name,
-                DATE_FORMAT(v.visit_date, '%Y-%m-%d') as visit_date,
+                DATE_FORMAT(v.visit_date, '%d-%m-%Y') as visit_date,
                 TIME_FORMAT(v.visit_time, '%H:%i') as visit_time,
                 v.visit_type,
                 v.purpose,
@@ -816,8 +816,8 @@ def meal_plan():
             SELECT 
                 mp.*,
                 u.username as chw_name,
-                DATE_FORMAT(mp.start_date, '%Y-%m-%d') as formatted_start_date,
-                DATE_FORMAT(mp.end_date, '%Y-%m-%d') as formatted_end_date
+                DATE_FORMAT(mp.start_date, '%d-%m-%Y') as formatted_start_date,
+                DATE_FORMAT(mp.end_date, '%d-%m-%Y') as formatted_end_date
             FROM meal_plans mp
             JOIN mother_chw mc ON mp.mother_id = mc.mother_id
             JOIN users u ON mc.chw_id = u.id
@@ -858,8 +858,8 @@ def workout_plan():
             SELECT 
                 wp.*,
                 u.username as chw_name,
-                DATE_FORMAT(wp.start_date, '%Y-%m-%d') as formatted_start_date,
-                DATE_FORMAT(wp.end_date, '%Y-%m-%d') as formatted_end_date
+                DATE_FORMAT(wp.start_date, '%d-%m-%Y') as formatted_start_date,
+                DATE_FORMAT(wp.end_date, '%d-%m-%Y') as formatted_end_date
             FROM workout_plans wp
             JOIN mother_chw mc ON wp.mother_id = mc.mother_id
             JOIN users u ON mc.chw_id = u.id
@@ -914,9 +914,11 @@ def visits():
         cursor.execute("""
             SELECT 
                 v.*,
-                DATE_FORMAT(v.visit_date, '%Y-%m-%d') as formatted_date,
-                TIME_FORMAT(v.visit_time, '%H:%i') as formatted_time
+                DATE_FORMAT(v.visit_date, '%d-%m-%Y') as formatted_date,
+                TIME_FORMAT(v.visit_time, '%H:%i') as formatted_time,
+                u.username as chw_name
             FROM visits v
+            JOIN users u ON v.chw_id = u.id
             WHERE v.mother_id = %s 
             AND v.visit_date >= CURDATE()
             ORDER BY v.visit_date ASC, v.visit_time ASC
@@ -927,9 +929,11 @@ def visits():
         cursor.execute("""
             SELECT 
                 v.*,
-                DATE_FORMAT(v.visit_date, '%Y-%m-%d') as formatted_date,
-                TIME_FORMAT(v.visit_time, '%H:%i') as formatted_time
+                DATE_FORMAT(v.visit_date, '%d-%m-%Y') as formatted_date,
+                TIME_FORMAT(v.visit_time, '%H:%i') as formatted_time,
+                u.username as chw_name
             FROM visits v
+            JOIN users u ON v.chw_id = u.id
             WHERE v.mother_id = %s 
             AND v.visit_date < CURDATE()
             ORDER BY v.visit_date DESC, v.visit_time DESC
@@ -948,7 +952,7 @@ def visits():
                              chw=None,
                              upcoming_visits=[],
                              past_visits=[])
-
+    
     finally:
         if cursor:
             cursor.close()
@@ -1347,13 +1351,13 @@ def reports():
         # Get user registration statistics
         cursor.execute("""
             SELECT 
-                DATE_FORMAT(created_at, '%Y-%m') as month,
+                DATE_FORMAT(created_at, '%m-%Y') as month,
                 COUNT(*) as total,
                 SUM(CASE WHEN user_type = 'mother' THEN 1 ELSE 0 END) as mothers,
                 SUM(CASE WHEN user_type = 'chw' THEN 1 ELSE 0 END) as chws
             FROM users
             WHERE created_at >= DATE_SUB(NOW(), INTERVAL 6 MONTH)
-            GROUP BY DATE_FORMAT(created_at, '%Y-%m')
+            GROUP BY DATE_FORMAT(created_at, '%m-%Y')
             ORDER BY month
         """)
         registration_stats = cursor.fetchall()
@@ -1433,7 +1437,7 @@ def export_excel():
         connection = mysql.connector.connect(**db_config)
         
         # Create a new Excel writer object
-        filename = f'maternal_care_report_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
+        filename = f'maternal_care_report_{datetime.now().strftime("%d%m%Y_%H%M%S")}.xlsx'
         filepath = os.path.join(EXPORT_DIR, filename)
         
         writer = pd.ExcelWriter(filepath, engine='xlsxwriter')
@@ -1508,7 +1512,7 @@ def export_pdf():
     cursor = None
     try:
         # Generate filename with timestamp
-        filename = f'maternal_care_report_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf'
+        filename = f'maternal_care_report_{datetime.now().strftime("%d%m%Y_%H%M%S")}.pdf'
         filepath = os.path.join(EXPORT_DIR, filename)
         
         # Ensure exports directory exists
@@ -1533,7 +1537,7 @@ def export_pdf():
         # Add title and date
         elements.append(Paragraph("Maternal Care System Report", styles['Heading1']))
         elements.append(Spacer(1, 12))
-        elements.append(Paragraph(f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
+        elements.append(Paragraph(f"Generated on: {datetime.now().strftime('%d-%m-%Y %H:%M:%S')}", styles['Normal']))
         elements.append(Spacer(1, 20))
         
         # Get database connection
@@ -1646,7 +1650,7 @@ def view_exports():
             if os.path.isfile(file_path):
                 files.append({
                     'name': filename,
-                    'date': datetime.fromtimestamp(os.path.getctime(file_path)).strftime('%Y-%m-%d %H:%M:%S'),
+                    'date': datetime.fromtimestamp(os.path.getctime(file_path)).strftime('%d-%m-%Y %H:%M:%S'),
                     'size': f"{os.path.getsize(file_path) / 1024:.1f} KB"
                 })
         
@@ -1727,7 +1731,7 @@ def export_report(report_type):
             
             # Create DataFrame and export to Excel
             df = pd.DataFrame(data)
-            filename = f'chw_performance_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
+            filename = f'chw_performance_{datetime.now().strftime("%d%m%Y_%H%M%S")}.xlsx'
             filepath = os.path.join(app.static_folder, 'exports', filename)
             
             # Ensure exports directory exists
@@ -2144,8 +2148,8 @@ def get_meal_plan_details(plan_id):
                 mp.id,
                 mp.meal_type,
                 mp.description,
-                DATE_FORMAT(mp.start_date, '%Y-%m-%d') as start_date,
-                DATE_FORMAT(mp.end_date, '%Y-%m-%d') as end_date,
+                DATE_FORMAT(mp.start_date, '%d-%m-%Y') as start_date,
+                DATE_FORMAT(mp.end_date, '%d-%m-%Y') as end_date,
                 mp.mother_id,
                 u.username as mother_name
             FROM meal_plans mp
@@ -2234,8 +2238,8 @@ def get_workout_plan_details(plan_id):
                 wp.exercise_type,
                 wp.duration,
                 wp.frequency,
-                DATE_FORMAT(wp.start_date, '%Y-%m-%d') as start_date,
-                DATE_FORMAT(wp.end_date, '%Y-%m-%d') as end_date,
+                DATE_FORMAT(wp.start_date, '%d-%m-%Y') as start_date,
+                DATE_FORMAT(wp.end_date, '%d-%m-%Y') as end_date,
                 wp.mother_id,
                 u.username as mother_name
             FROM workout_plans wp
@@ -2273,7 +2277,7 @@ def get_visit_details(visit_id):
             SELECT 
                 v.*,
                 u.username as mother_name,
-                DATE_FORMAT(v.visit_date, '%Y-%m-%d') as visit_date,
+                DATE_FORMAT(v.visit_date, '%d-%m-%Y') as visit_date,
                 TIME_FORMAT(v.visit_time, '%H:%i') as visit_time
             FROM visits v
             JOIN users u ON v.mother_id = u.id
