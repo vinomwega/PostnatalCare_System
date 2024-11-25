@@ -25,6 +25,10 @@
                     <span class="badge {% if plan.exercise_type == 'Recovery' %}bg-success{% elif plan.exercise_type == 'Cardio' %}bg-danger{% else %}bg-primary{% endif %}">
                         {{ plan.frequency }}
                     </span>
+                    <a href="{{ url_for('mother_workout_tracking', plan_id=plan.id) }}" 
+                       class="btn btn-primary btn-sm">
+                        <i class="fas fa-check-square"></i> Track Progress
+                    </a>
                 </div>
                 <div class="card-body">
                     <div class="row">

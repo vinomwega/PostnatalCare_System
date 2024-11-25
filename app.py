@@ -256,6 +256,14 @@ def mother_dashboard():
         next_visit = None
         chw = None
 
+        # Fetch mother details
+        cursor.execute("""
+            SELECT username, email 
+            FROM users 
+            WHERE id = %s
+        """, (session['user_id'],))
+        mother_details = cursor.fetchone()
+
         # First, check if mother has an assigned CHW
         cursor.execute("""
             SELECT 
@@ -276,7 +284,7 @@ def mother_dashboard():
             cursor.execute("""
                 SELECT 
                     v.*,
-                    DATE_FORMAT(v.visit_date, '%Y-%m-%d') as formatted_date,
+                    DATE_FORMAT(v.visit_date, '%d-%m-%Y') as formatted_date,
                     TIME_FORMAT(v.visit_time, '%H:%i') as formatted_time
                 FROM visits v
                 WHERE v.mother_id = %s 
@@ -289,6 +297,7 @@ def mother_dashboard():
 
         # Render template with the fetched data
         return render_template('Mother/mother_dashboard.html',
+                             mother_name=mother_details['username'],
                              next_visit=next_visit,
                              chw=chw)
 
@@ -296,6 +305,7 @@ def mother_dashboard():
         print(f"Database Error: {err}")
         flash(f'Error loading dashboard data: {str(err)}', 'error')
         return render_template('Mother/mother_dashboard.html',
+                             mother_name="Mother",
                              next_visit=None,
                              chw=None)
 
@@ -762,6 +772,7 @@ def chw_visits():
         if connection and connection.is_connected():
             connection.close()
 
+#delete visit
 @app.route('/chw/visit/delete/<int:visit_id>', methods=['POST'])
 @login_required
 def delete_visit(visit_id):
@@ -809,6 +820,14 @@ def admin_dashboard():
         )
         cursor = connection.cursor(dictionary=True)
 
+        # Fetch admin details
+        cursor.execute("""
+            SELECT username, email 
+            FROM users 
+            WHERE id = %s
+        """, (session['user_id'],))
+        admin_details = cursor.fetchone()
+
         # Get user counts
         cursor.execute("""
             SELECT 
@@ -834,7 +853,8 @@ def admin_dashboard():
         return render_template('Admin/admin_dashboard.html',
                              stats=stats,  # Changed from user_stats to stats
                              visit_stats=visit_stats,
-                             recent_users=recent_users)
+                             recent_users=recent_users,
+                             admin_name=admin_details['username'])
                              
     except mysql.connector.Error as err:
         print(f"Database Error: {err}")
@@ -842,7 +862,8 @@ def admin_dashboard():
         return render_template('Admin/admin_dashboard.html', 
                              stats={'total_mothers': 0, 'total_chws': 0},  # Match the structure
                              visit_stats={'total_visits': 0},
-                             recent_users=[])
+                             recent_users=[],
+                             admin_details=None)
 
     finally:
         if cursor:
@@ -1023,13 +1044,13 @@ def visits():
             SELECT 
                 u.id, 
                 u.username as name, 
-                u.email,
-                u.phone_number
+                u.email
             FROM users u
             JOIN mother_chw mc ON u.id = mc.chw_id
             WHERE mc.mother_id = %s AND u.user_type = 'chw'
         """, (mother_id,))
         chw = cursor.fetchone()
+        #removed phone number
 
         # Get upcoming visits
         cursor.execute("""
@@ -1080,7 +1101,6 @@ def visits():
         if connection and connection.is_connected():
             connection.close()
 
-#mother my chw
 @app.route('/mother/my_chw')
 @login_required
 def my_chw():
@@ -1095,20 +1115,25 @@ def my_chw():
         )
         cursor = connection.cursor(dictionary=True)
 
-        # Get CHW information from users table
+        # Fetch the assigned CHW for the logged-in mother
         cursor.execute("""
-            SELECT id, username as name, email, user_type 
-            FROM users 
-            WHERE user_type = 'chw'
-            LIMIT 1
-        """)
+            SELECT 
+                u.id, 
+                u.username AS name, 
+                u.email
+            FROM users u
+            JOIN mother_chw mc ON u.id = mc.chw_id
+            WHERE mc.mother_id = %s AND u.user_type = 'chw'
+        """, (session['user_id'],))
         chw = cursor.fetchone()
+        #removed phone number
 
-        # Get any messages (if they exist)
+        # Get messages exchanged between the mother and the assigned CHW
         messages = []
         if chw:
             cursor.execute("""
-                SELECT * FROM messages 
+                SELECT * 
+                FROM messages 
                 WHERE (sender_id = %s AND receiver_id = %s)
                    OR (sender_id = %s AND receiver_id = %s)
                 ORDER BY created_at DESC
