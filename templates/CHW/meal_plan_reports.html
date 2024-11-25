@@ -1,0 +1,153 @@
+{% extends "CHW/base.html" %}
+
+{% block content %}
+<div class="content-header">
+    <div class="container-fluid">
+        <h1 class="m-0">Meal Plan Reports</h1>
+    </div>
+</div>
+
+<section class="content">
+    <div class="container-fluid">
+        <!-- Flash Messages -->
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }} alert-dismissible fade show">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <!-- Summary Card -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h3 class="card-title">
+                    <i class="fas fa-chart-pie mr-2"></i> Meal Plan Summary
+                </h3>
+            </div>
+            <div class="card-body">
+                {% if summary_data %}
+                    <div class="table-responsive">
+                        <table class="table table-bordered table-hover" id="summaryTable">
+                            <thead>
+                                <tr>
+                                    <th>Mother's Name</th>
+                                    <th>Meal Type</th>
+                                    <th>Period</th>
+                                    <th>Days Tracked</th>
+                                    <th>Days Completed</th>
+                                    <th>Completion Rate</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for summary in summary_data %}
+                                <tr>
+                                    <td>{{ summary.mother_name }}</td>
+                                    <td>{{ summary.meal_type }}</td>
+                                    <td>{{ summary.start_date }} to {{ summary.end_date }}</td>
+                                    <td>{{ summary.total_tracked_days }}</td>
+                                    <td>{{ summary.completed_days }}</td>
+                                    <td>
+                                        <div class="progress">
+                                            <div class="progress-bar {% if summary.completion_rate >= 75 %}bg-success
+                                                        {% elif summary.completion_rate >= 50 %}bg-warning
+                                                        {% else %}bg-danger{% endif %}"
+                                                 role="progressbar"
+                                                 style="width: {{ summary.completion_rate }}%"
+                                                 aria-valuenow="{{ summary.completion_rate }}"
+                                                 aria-valuemin="0"
+                                                 aria-valuemax="100">
+                                                {{ summary.completion_rate }}%
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <button type="button" 
+                                                class="btn btn-sm btn-info view-details"
+                                                data-mother-id="{{ summary.mother_id }}"
+                                                data-plan-id="{{ summary.plan_id }}">
+                                            <i class="fas fa-eye"></i> View Details
+                                        </button>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="alert alert-info">
+                        No meal plan tracking data available.
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Detailed Tracking Card -->
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">
+                    <i class="fas fa-calendar-check mr-2"></i> Detailed Tracking
+                </h3>
+            </div>
+            <div class="card-body">
+                {% if detailed_data %}
+                    <div class="table-responsive">
+                        <table class="table table-bordered table-hover" id="detailedTable">
+                            <thead>
+                                <tr>
+                                    <th>Mother's Name</th>
+                                    <th>Meal Type</th>
+                                    <th>Date</th>
+                                    <th>Status</th>
+                                    <th>Notes</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for detail in detailed_data %}
+                                <tr>
+                                    <td>{{ detail.mother_name }}</td>
+                                    <td>{{ detail.meal_type }}</td>
+                                    <td>{{ detail.tracked_date }}</td>
+                                    <td>
+                                        <span class="badge {% if detail.is_completed %}bg-success{% else %}bg-danger{% endif %}">
+                                            {{ 'Completed' if detail.is_completed else 'Not Completed' }}
+                                        </span>
+                                    </td>
+                                    <td>{{ detail.notes or '' }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="alert alert-info">
+                        No detailed tracking data available.
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- DataTables Initialization -->
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize DataTables
+    $('#summaryTable').DataTable({
+        "responsive": true,
+        "order": [[5, "desc"]], // Sort by completion rate by default
+        "pageLength": 10
+    });
+
+    $('#detailedTable').DataTable({
+        "responsive": true,
+        "order": [[2, "desc"]], // Sort by date by default
+        "pageLength": 25
+    });
+});
+</script>
+{% endblock %} 

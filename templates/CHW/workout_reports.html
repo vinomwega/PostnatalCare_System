@@ -1,0 +1,151 @@
+{% extends "CHW/base.html" %}
+
+{% block content %}
+<div class="content-header">
+    <div class="container-fluid">
+        <h1 class="m-0">Workout Reports</h1>
+    </div>
+</div>
+
+<section class="content">
+    <div class="container-fluid">
+        <!-- Summary Card -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h3 class="card-title">
+                    <i class="fas fa-chart-pie mr-2"></i> Workout Summary
+                </h3>
+            </div>
+            <div class="card-body">
+                {% if summary_data %}
+                    <div class="table-responsive">
+                        <table class="table table-bordered table-hover" id="summaryTable">
+                            <thead>
+                                <tr>
+                                    <th>Mother's Name</th>
+                                    <th>Exercise Type</th>
+                                    <th>Frequency</th>
+                                    <th>Period</th>
+                                    <th>Avg Duration</th>
+                                    <th>Completion Rate</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for summary in summary_data %}
+                                <tr>
+                                    <td>{{ summary.mother_name }}</td>
+                                    <td>{{ summary.exercise_type }}</td>
+                                    <td>{{ summary.frequency }}</td>
+                                    <td>{{ summary.start_date }} to {{ summary.end_date }}</td>
+                                    <td>{{ summary.avg_duration }} min</td>
+                                    <td>
+                                        <div class="progress">
+                                            <div class="progress-bar {% if summary.completion_rate >= 75 %}bg-success
+                                                        {% elif summary.completion_rate >= 50 %}bg-warning
+                                                        {% else %}bg-danger{% endif %}"
+                                                 role="progressbar"
+                                                 style="width: {{ summary.completion_rate }}%"
+                                                 aria-valuenow="{{ summary.completion_rate }}"
+                                                 aria-valuemin="0"
+                                                 aria-valuemax="100">
+                                                {{ summary.completion_rate }}%
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <button type="button" 
+                                                class="btn btn-sm btn-info view-details"
+                                                data-mother-id="{{ summary.mother_id }}"
+                                                data-plan-id="{{ summary.plan_id }}">
+                                            <i class="fas fa-eye"></i> View Details
+                                        </button>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="alert alert-info">
+                        No workout tracking data available.
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Detailed Tracking Card -->
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">
+                    <i class="fas fa-calendar-check mr-2"></i> Detailed Tracking
+                </h3>
+            </div>
+            <div class="card-body">
+                {% if detailed_data %}
+                    <div class="table-responsive">
+                        <table class="table table-bordered table-hover" id="detailedTable">
+                            <thead>
+                                <tr>
+                                    <th>Mother's Name</th>
+                                    <th>Exercise Type</th>
+                                    <th>Date</th>
+                                    <th>Status</th>
+                                    <th>Duration</th>
+                                    <th>Difficulty</th>
+                                    <th>Notes</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for detail in detailed_data %}
+                                <tr>
+                                    <td>{{ detail.mother_name }}</td>
+                                    <td>{{ detail.exercise_type }}</td>
+                                    <td>{{ detail.tracked_date }}</td>
+                                    <td>
+                                        <span class="badge {% if detail.is_completed %}bg-success{% else %}bg-danger{% endif %}">
+                                            {{ 'Completed' if detail.is_completed else 'Not Completed' }}
+                                        </span>
+                                    </td>
+                                    <td>{{ detail.duration_minutes }} min</td>
+                                    <td>
+                                        <span class="badge 
+                                            {% if detail.difficulty_level == 'Easy' %}bg-success
+                                            {% elif detail.difficulty_level == 'Moderate' %}bg-warning
+                                            {% else %}bg-danger{% endif %}">
+                                            {{ detail.difficulty_level }}
+                                        </span>
+                                    </td>
+                                    <td>{{ detail.notes or '' }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="alert alert-info">
+                        No detailed tracking data available.
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- DataTables Initialization -->
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    $('#summaryTable').DataTable({
+        "responsive": true,
+        "order": [[5, "desc"]], // Sort by completion rate
+        "pageLength": 10
+    });
+
+    $('#detailedTable').DataTable({
+        "responsive": true,
+        "order": [[2, "desc"]], // Sort by date
+        "pageLength": 25
+    });
+});
+</script>
+{% endblock %} 

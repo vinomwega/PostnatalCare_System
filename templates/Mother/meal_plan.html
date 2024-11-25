@@ -23,6 +23,10 @@
                     <span class="badge bg-info">
                         {{ plan.formatted_start_date }} to {{ plan.formatted_end_date }}
                     </span>
+                    <a href="{{ url_for('mother_meal_tracking', plan_id=plan.id) }}" 
+                       class="btn btn-primary btn-sm">
+                        <i class="fas fa-check-square"></i> Track Progress
+                    </a>
                 </div>
                 <div class="card-body">
                     <div class="row">

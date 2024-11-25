@@ -1,0 +1,24 @@
+This is suppose to be added in the predit route to ensure its save in a table inside the database
+ # Insert the data into the MySQL database
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # SQL query to insert the data
+        insert_query = """
+        INSERT INTO checkin_responses (user_id, chw_id, age, systolic_bp, diastolic_bp, bs, body_temp, heart_rate, risk_level)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """
+        cursor.execute(insert_query, (user_id, chw_id, age, systolic_bp, diastolic_bp, bs, body_temp, heart_rate, risk_level))
+
+        # Commit the transaction
+        conn.commit()
+
+        # Close the connection
+        cursor.close()
+        conn.close()
+
+        print("Data inserted successfully into the database.")
+
+    except mysql.connector.Error as err:
+        print("Error: ", err)

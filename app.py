@@ -119,7 +119,31 @@ def predict():
             print("Email sent successfully.")
         except Exception as e:
             print("Error sending email:", e)
+    
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
 
+        # SQL query to insert the data
+        insert_query = """
+        INSERT INTO risk_assessments 
+            (mother_id, age, systolic_bp, diastolic_bp, blood_sugar, 
+             body_temp, heart_rate, risk_level)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        """
+        cursor.execute(insert_query, (session['user_id'], age, systolic_bp, diastolic_bp, bs, body_temp, heart_rate, risk_level))
+
+        # Commit the transaction
+        conn.commit()
+
+        # Close the connection
+        cursor.close()
+        conn.close()
+
+        print("Data inserted successfully into the database.")
+
+    except mysql.connector.Error as err:
+        print("Error: ", err)
     # Pass the result to the 'mother_dashboard.html' template
     return render_template('Mother/mother_dashboard.html', risk_level=risk_level)
 
@@ -2395,6 +2419,267 @@ def get_visit_details(visit_id):
             cursor.close()
         if connection and connection.is_connected():
             connection.close()
+# meal plan tracking
+@app.route('/mother/meal-plan-tracking/<int:plan_id>', methods=['GET', 'POST'])
+@login_required
+def mother_meal_tracking(plan_id):
+    if session.get('user_type') != 'mother':
+        flash('Unauthorized access', 'error')
+        return redirect(url_for('login'))
+    
+    connection = None
+    cursor = None
+    try:
+        connection = mysql.connector.connect(**db_config)
+        cursor = connection.cursor(dictionary=True)
+        
+        # Handle form submission
+        if request.method == 'POST':
+            date = request.form.get('date')
+            is_completed = request.form.get('is_completed') == 'true'
+            notes = request.form.get('notes')
+            
+            cursor.execute("""
+                INSERT INTO meal_plan_tracking 
+                (mother_id, meal_plan_id, meal_date, is_completed, notes)
+                VALUES (%s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE 
+                is_completed = VALUES(is_completed),
+                notes = VALUES(notes)
+            """, (session['user_id'], plan_id, date, is_completed, notes))
+            connection.commit()
+            flash('Tracking updated successfully', 'success')
+            
+        # Get meal plan details
+        cursor.execute("""
+            SELECT mp.*, u.username as chw_name
+            FROM meal_plans mp
+            JOIN mother_chw mc ON mp.mother_id = mc.mother_id
+            JOIN users u ON mc.chw_id = u.id
+            WHERE mp.id = %s AND mp.mother_id = %s
+        """, (plan_id, session['user_id']))
+        meal_plan = cursor.fetchone()
+        
+        if not meal_plan:
+            flash('Meal plan not found', 'error')
+            return redirect(url_for('meal_plan'))
+            
+        # Get tracking data
+        cursor.execute("""
+            SELECT * 
+            FROM meal_plan_tracking
+            WHERE meal_plan_id = %s AND mother_id = %s
+            ORDER BY meal_date DESC
+        """, (plan_id, session['user_id']))
+        tracking_data = cursor.fetchall()
+        
+        return render_template('Mother/meal_plan_tracking.html',
+                             meal_plan=meal_plan,
+                             tracking_data=tracking_data)
+                             
+    except mysql.connector.Error as err:
+        print(f"Database Error: {err}")
+        flash('Error accessing meal plan tracking', 'error')
+        return redirect(url_for('meal_plan'))
+        
+    finally:
+        if cursor:
+            cursor.close()
+        if connection and connection.is_connected():
+            connection.close()
+            
+# meal plan report  
+@app.route('/chw/meal-plan-report')
+@login_required
+def chw_meal_plan_reports():
+    if session.get('user_type') != 'chw':
+        flash('Unauthorized access', 'error')
+        return redirect(url_for('login'))
+    
+    connection = None
+    cursor = None
+    try:
+        connection = mysql.connector.connect(**db_config)
+        cursor = connection.cursor(dictionary=True)
+        
+        cursor.execute("""
+            SELECT 
+                u.username as mother_name,
+                mp.meal_type,
+                mp.start_date,
+                mp.end_date,
+                COUNT(mpt.id) as total_days,
+                SUM(mpt.is_completed) as completed_days,
+                (SUM(mpt.is_completed) / COUNT(mpt.id) * 100) as completion_rate
+            FROM meal_plans mp
+            JOIN users u ON mp.mother_id = u.id
+            JOIN mother_chw mc ON u.id = mc.mother_id
+            LEFT JOIN meal_plan_tracking mpt ON mp.id = mpt.meal_plan_id
+            WHERE mc.chw_id = %s
+            GROUP BY mp.id
+            ORDER BY mp.start_date DESC
+        """, (session['user_id'],))
+        reports = cursor.fetchall()
+        
+        return render_template('CHW/meal_plan_reports.html', reports=reports)
+        
+    except mysql.connector.Error as err:
+        print(f"Database Error: {err}")
+        flash('Error generating report', 'error')
+        return redirect(url_for('chw_dashboard'))
+        
+    finally:
+        if cursor:
+            cursor.close()
+        if connection and connection.is_connected():
+            connection.close()
 
+# workout tracking
+@app.route('/mother/workout-tracking/<int:plan_id>', methods=['GET', 'POST'])
+@login_required
+def mother_workout_tracking(plan_id):
+    if session.get('user_type') != 'mother':
+        flash('Unauthorized access', 'error')
+        return redirect(url_for('login'))
+    
+    connection = None
+    cursor = None
+    try:
+        connection = mysql.connector.connect(**db_config)
+        cursor = connection.cursor(dictionary=True)
+        
+        # Handle form submission
+        if request.method == 'POST':
+            date = request.form.get('date')
+            is_completed = request.form.get('is_completed') == 'true'
+            duration = request.form.get('duration_minutes')
+            difficulty = request.form.get('difficulty_level')
+            notes = request.form.get('notes')
+            
+            cursor.execute("""
+                INSERT INTO workout_plan_tracking 
+                (mother_id, workout_plan_id, workout_date, is_completed, 
+                 duration_minutes, difficulty_level, notes)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE 
+                is_completed = VALUES(is_completed),
+                duration_minutes = VALUES(duration_minutes),
+                difficulty_level = VALUES(difficulty_level),
+                notes = VALUES(notes)
+            """, (session['user_id'], plan_id, date, is_completed, 
+                  duration, difficulty, notes))
+            connection.commit()
+            flash('Workout tracking updated successfully', 'success')
+            
+        # Get workout plan details
+        cursor.execute("""
+            SELECT wp.*, u.username as chw_name
+            FROM workout_plans wp
+            JOIN mother_chw mc ON wp.mother_id = mc.mother_id
+            JOIN users u ON mc.chw_id = u.id
+            WHERE wp.id = %s AND wp.mother_id = %s
+        """, (plan_id, session['user_id']))
+        workout_plan = cursor.fetchone()
+        
+        if not workout_plan:
+            flash('Workout plan not found', 'error')
+            return redirect(url_for('workout_plan'))
+            
+        # Get tracking data
+        cursor.execute("""
+            SELECT * 
+            FROM workout_plan_tracking
+            WHERE workout_plan_id = %s AND mother_id = %s
+            ORDER BY workout_date DESC
+        """, (plan_id, session['user_id']))
+        tracking_data = cursor.fetchall()
+        
+        return render_template('Mother/workout_tracking.html',
+                             workout_plan=workout_plan,
+                             tracking_data=tracking_data)
+                             
+    except mysql.connector.Error as err:
+        print(f"Database Error: {err}")
+        flash('Error accessing workout tracking', 'error')
+        return redirect(url_for('workout_plan'))
+        
+    finally:
+        if cursor:
+            cursor.close()
+        if connection and connection.is_connected():
+            connection.close()
+
+# workout report
+@app.route('/chw/workout-reports')
+@login_required
+def chw_workout_reports():
+    if session.get('user_type') != 'chw':
+        flash('Unauthorized access', 'error')
+        return redirect(url_for('login'))
+    
+    connection = None
+    cursor = None
+    try:
+        connection = mysql.connector.connect(**db_config)
+        cursor = connection.cursor(dictionary=True)
+        
+        # Get overall summary for all mothers
+        cursor.execute("""
+            SELECT 
+                u.id as mother_id,
+                u.username as mother_name,
+                wp.id as plan_id,
+                wp.exercise_type,
+                wp.frequency,
+                DATE_FORMAT(wp.start_date, '%Y-%m-%d') as start_date,
+                DATE_FORMAT(wp.end_date, '%Y-%m-%d') as end_date,
+                COUNT(wpt.id) as total_tracked_days,
+                SUM(wpt.is_completed) as completed_days,
+                ROUND(AVG(wpt.duration_minutes), 0) as avg_duration,
+                ROUND((SUM(wpt.is_completed) / COUNT(wpt.id) * 100), 2) as completion_rate
+            FROM users u
+            JOIN mother_chw mc ON u.id = mc.mother_id
+            JOIN workout_plans wp ON u.id = wp.mother_id
+            LEFT JOIN workout_plan_tracking wpt ON wp.id = wpt.workout_plan_id
+            WHERE mc.chw_id = %s AND u.user_type = 'mother'
+            GROUP BY wp.id
+            ORDER BY wp.start_date DESC
+        """, (session['user_id'],))
+        summary_data = cursor.fetchall()
+        
+        # Get detailed tracking data
+        cursor.execute("""
+            SELECT 
+                u.username as mother_name,
+                wp.exercise_type,
+                DATE_FORMAT(wpt.workout_date, '%Y-%m-%d') as tracked_date,
+                wpt.is_completed,
+                wpt.duration_minutes,
+                wpt.difficulty_level,
+                wpt.notes
+            FROM users u
+            JOIN mother_chw mc ON u.id = mc.mother_id
+            JOIN workout_plans wp ON u.id = wp.mother_id
+            JOIN workout_plan_tracking wpt ON wp.id = wpt.workout_plan_id
+            WHERE mc.chw_id = %s AND u.user_type = 'mother'
+            ORDER BY wpt.workout_date DESC
+        """, (session['user_id'],))
+        detailed_data = cursor.fetchall()
+        
+        return render_template('CHW/workout_reports.html',
+                             summary_data=summary_data,
+                             detailed_data=detailed_data)
+                             
+    except mysql.connector.Error as err:
+        print(f"Database Error: {err}")
+        flash('Error generating workout reports', 'error')
+        return redirect(url_for('chw_dashboard'))
+        
+    finally:
+        if cursor:
+            cursor.close()
+        if connection and connection.is_connected():
+            connection.close()
+# run the app
 if __name__ == '__main__':
     app.run(debug=True)
