@@ -214,12 +214,109 @@ def login():
 
 # Dashboard routes
 #mother dashboard
-@app.route('/mother/dashboard')
+@app.route('/mother/dashboard', methods=['GET', 'POST'])
 @login_required
 def mother_dashboard():
-    if session['user_type'] != 'mother':
+    if session.get('user_type') != 'mother':
+        flash('Unauthorized access', 'error')
         return redirect(url_for('login'))
-    return render_template('Mother/mother_dashboard.html')
+    
+    connection = None
+    cursor = None
+    try:
+        mother_id = session['user_id']
+        connection = mysql.connector.connect(**db_config)
+        cursor = connection.cursor(dictionary=True)
+
+        # Initialize variables with default values
+        next_visit = None
+        chw = None
+
+        # First, check if mother has an assigned CHW
+        cursor.execute("""
+            SELECT 
+                u.id as chw_id,
+                u.username as chw_name,
+                u.email as chw_email,
+                u.available_hours,
+                mc.created_at as assignment_date
+            FROM mother_chw mc
+            JOIN users u ON mc.chw_id = u.id
+            WHERE mc.mother_id = %s 
+            AND u.user_type = 'chw'
+        """, (mother_id,))
+        chw = cursor.fetchone()
+
+        # Only fetch visits if there's an assigned CHW
+        if chw:
+            cursor.execute("""
+                SELECT 
+                    v.*,
+                    DATE_FORMAT(v.visit_date, '%Y-%m-%d') as formatted_date,
+                    TIME_FORMAT(v.visit_time, '%H:%i') as formatted_time
+                FROM visits v
+                WHERE v.mother_id = %s 
+                    AND v.visit_date >= CURDATE()
+                    AND v.chw_id = %s
+                ORDER BY v.visit_date ASC, v.visit_time ASC
+                LIMIT 1
+            """, (mother_id, chw['chw_id']))
+            next_visit = cursor.fetchone()
+
+        # Render template with the fetched data
+        return render_template('Mother/mother_dashboard.html',
+                             next_visit=next_visit,
+                             chw=chw)
+
+    except mysql.connector.Error as err:
+        print(f"Database Error: {err}")
+        flash(f'Error loading dashboard data: {str(err)}', 'error')
+        return render_template('Mother/mother_dashboard.html',
+                             next_visit=None,
+                             chw=None)
+
+    finally:
+        if cursor:
+            cursor.close()
+        if connection and connection.is_connected():
+            connection.close()
+
+# New route for handling check-ins
+@app.route('/mother/checkin', methods=['POST'])
+@login_required
+def mother_checkin():
+    if session.get('user_type') != 'mother':
+        return jsonify({'error': 'Unauthorized'}), 403
+
+    try:
+        data = request.form
+        connection = mysql.connector.connect(**db_config)
+        cursor = connection.cursor()
+
+        cursor.execute("""
+            INSERT INTO checkin_responses 
+            (mother_id, mood, physical_health, emotional_health, support_needed)
+            VALUES (%s, %s, %s, %s, %s)
+        """, (session['user_id'], 
+              data.get('mood'),
+              data.get('physical_health'),
+              data.get('emotional_health'),
+              data.get('support_needed')))
+
+        connection.commit()
+        flash('Check-in submitted successfully', 'success')
+
+    except mysql.connector.Error as err:
+        print(f"Database Error: {err}")
+        flash('Error submitting check-in', 'error')
+
+    finally:
+        if cursor:
+            cursor.close()
+        if connection and connection.is_connected():
+            connection.close()
+
+    return redirect(url_for('mother_dashboard'))
 
 #chw dashboard
 @app.route('/chw/dashboard')
