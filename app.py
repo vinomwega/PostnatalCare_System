@@ -390,6 +390,25 @@ def chw_dashboard():
         """, (session['user_id'],))
         
         assigned_mothers = cursor.fetchall()
+
+         # Get assigned mothers with unread message counts
+        cursor.execute("""
+            SELECT 
+                u.id,
+                u.username,
+                u.email,
+                mc.created_at as assignment_date,
+                (SELECT COUNT(*) 
+                 FROM messages m 
+                 WHERE m.sender_id = u.id 
+                 AND m.receiver_id = %s 
+                 AND m.is_read = FALSE) as unread_count
+            FROM users u
+            JOIN mother_chw mc ON u.id = mc.mother_id
+            WHERE mc.chw_id = %s AND u.user_type = 'mother'
+            ORDER BY u.username
+        """, (session['user_id'], session['user_id']))
+        assigned_mothers = cursor.fetchall()
         
         return render_template('CHW/chw_dashboard.html',
                              chw_name=chw_details['username'],
@@ -2705,6 +2724,178 @@ def chw_workout_reports():
             cursor.close()
         if connection and connection.is_connected():
             connection.close()
+
+# get messages
+@app.route('/api/messages/<int:other_user_id>')
+@login_required
+def get_messages(other_user_id):
+    connection = None
+    cursor = None
+    try:
+        connection = mysql.connector.connect(**db_config)
+        cursor = connection.cursor(dictionary=True)
+        
+        # Verify relationship exists (CHW-Mother)
+        if session['user_type'] == 'chw':
+            cursor.execute("""
+                SELECT 1 FROM mother_chw 
+                WHERE chw_id = %s AND mother_id = %s
+            """, (session['user_id'], other_user_id))
+        else:
+            cursor.execute("""
+                SELECT 1 FROM mother_chw 
+                WHERE mother_id = %s AND chw_id = %s
+            """, (session['user_id'], other_user_id))
+            
+        if not cursor.fetchone():
+            return jsonify({'error': 'Unauthorized'}), 403
+        
+        # Get messages
+        cursor.execute("""
+            SELECT 
+                m.*,
+                u.username as sender_name,
+                u.user_type as sender_type
+            FROM messages m
+            JOIN users u ON m.sender_id = u.id
+            WHERE (m.sender_id = %s AND m.receiver_id = %s)
+            OR (m.sender_id = %s AND m.receiver_id = %s)
+            ORDER BY m.created_at ASC
+        """, (session['user_id'], other_user_id, 
+              other_user_id, session['user_id']))
+        
+        messages = cursor.fetchall()
+        
+        # Mark messages as read
+        cursor.execute("""
+            UPDATE messages 
+            SET is_read = TRUE
+            WHERE receiver_id = %s AND sender_id = %s
+        """, (session['user_id'], other_user_id))
+        connection.commit()
+        
+        return jsonify({'messages': messages})
+        
+    except mysql.connector.Error as err:
+        print(f"Database Error: {err}")
+        return jsonify({'error': 'Database error'}), 500
+        
+    finally:
+        if cursor:
+            cursor.close()
+        if connection and connection.is_connected():
+            connection.close()
+
+# get unread messages
+@app.route('/api/messages/unread')
+@login_required
+def get_unread_messages():
+    connection = None
+    cursor = None
+    try:
+        connection = mysql.connector.connect(**db_config)
+        cursor = connection.cursor(dictionary=True)
+        
+        cursor.execute("""
+            SELECT 
+                COUNT(*) as count,
+                sender_id,
+                u.username as sender_name
+            FROM messages m
+            JOIN users u ON m.sender_id = u.id
+            WHERE receiver_id = %s AND is_read = FALSE
+            GROUP BY sender_id
+        """, (session['user_id'],))
+        
+        unread = cursor.fetchall()
+        return jsonify({'unread': unread})
+        
+    except mysql.connector.Error as err:
+        print(f"Database Error: {err}")
+        return jsonify({'error': 'Database error'}), 500
+        
+    finally:
+        if cursor:
+            cursor.close()
+        if connection and connection.is_connected():
+            connection.close()
+
+# chw messages
+@app.route('/chw/messages/<int:mother_id>', methods=['GET', 'POST'])
+@login_required
+def chw_messages(mother_id):
+    if session.get('user_type') != 'chw':
+        flash('Unauthorized access', 'error')
+        return redirect(url_for('login'))
+    
+    connection = None
+    cursor = None
+    try:
+        connection = mysql.connector.connect(**db_config)
+        cursor = connection.cursor(dictionary=True)
+        
+        # Verify CHW is assigned to this mother
+        cursor.execute("""
+            SELECT u.id, u.username, u.email
+            FROM users u
+            JOIN mother_chw mc ON u.id = mc.mother_id
+            WHERE mc.chw_id = %s AND u.id = %s AND u.user_type = 'mother'
+        """, (session['user_id'], mother_id))
+        mother = cursor.fetchone()
+        
+        if not mother:
+            flash('Unauthorized: Mother not assigned to you', 'error')
+            return redirect(url_for('chw_dashboard'))
+            
+        # Handle message sending
+        if request.method == 'POST':
+            message_text = request.form.get('message')
+            if message_text:
+                cursor.execute("""
+                    INSERT INTO messages 
+                    (sender_id, receiver_id, message_text)
+                    VALUES (%s, %s, %s)
+                """, (session['user_id'], mother_id, message_text))
+                connection.commit()
+                flash('Message sent successfully', 'success')
+        
+        # Get conversation history
+        cursor.execute("""
+            SELECT 
+                m.*,
+                u.username as sender_name,
+                u.user_type as sender_type
+            FROM messages m
+            JOIN users u ON m.sender_id = u.id
+            WHERE (m.sender_id = %s AND m.receiver_id = %s)
+               OR (m.sender_id = %s AND m.receiver_id = %s)
+            ORDER BY m.created_at DESC
+        """, (session['user_id'], mother_id, mother_id, session['user_id']))
+        messages = cursor.fetchall()
+        
+        # Mark messages as read
+        cursor.execute("""
+            UPDATE messages 
+            SET is_read = TRUE
+            WHERE receiver_id = %s AND sender_id = %s
+        """, (session['user_id'], mother_id))
+        connection.commit()
+        
+        return render_template('CHW/messages.html',
+                             mother=mother,
+                             messages=messages)
+                             
+    except mysql.connector.Error as err:
+        print(f"Database Error: {err}")
+        flash('Error accessing messages', 'error')
+        return redirect(url_for('chw_dashboard'))
+        
+    finally:
+        if cursor:
+            cursor.close()
+        if connection and connection.is_connected():
+            connection.close()
+
 # run the app
 if __name__ == '__main__':
     app.run(debug=True)

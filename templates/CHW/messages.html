@@ -1,0 +1,94 @@
+{% extends "CHW/base.html" %}
+
+{% block content %}
+<div class="content-header">
+    <div class="container-fluid">
+        <h1 class="m-0">Messages with {{ mother.username }}</h1>
+    </div>
+</div>
+
+<section class="content">
+    <div class="container-fluid">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }} alert-dismissible fade show">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <div class="row">
+            <!-- Mother Info Card -->
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">Mother Details</h3>
+                    </div>
+                    <div class="card-body">
+                        <p><strong>Name:</strong> {{ mother.username }}</p>
+                        <p><strong>Email:</strong> {{ mother.email }}</p>
+                        <a href="{{ url_for('chw_dashboard') }}" class="btn btn-secondary">
+                            <i class="fas fa-arrow-left"></i> Back to Dashboard
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Messages Card -->
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">Conversation History</h3>
+                    </div>
+                    <div class="card-body">
+                        <!-- Message Form -->
+                        <form method="POST" class="mb-4">
+                            <div class="input-group">
+                                <textarea name="message" class="form-control" 
+                                          rows="2" placeholder="Type your message..." 
+                                          required></textarea>
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="fas fa-paper-plane"></i> Send
+                                </button>
+                            </div>
+                        </form>
+
+                        <!-- Messages Display -->
+                        <div class="messages-container" style="max-height: 500px; overflow-y: auto;">
+                            {% for message in messages %}
+                                <div class="message mb-3 p-3 rounded 
+                                    {% if message.sender_id == session['user_id'] %}
+                                        bg-light text-end
+                                    {% else %}
+                                        bg-info bg-opacity-10
+                                    {% endif %}">
+                                    <div class="message-header mb-1">
+                                        <small class="text-muted">
+                                            {{ message.sender_name }} - 
+                                            {{ message.created_at.strftime('%Y-%m-%d %H:%M') }}
+                                        </small>
+                                    </div>
+                                    <div class="message-content">
+                                        {{ message.message_text }}
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<script>
+// Scroll to bottom of messages container on page load
+document.addEventListener('DOMContentLoaded', function() {
+    const container = document.querySelector('.messages-container');
+    container.scrollTop = container.scrollHeight;
+});
+</script>
+{% endblock %} 
