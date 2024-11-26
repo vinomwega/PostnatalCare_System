@@ -372,7 +372,18 @@ def chw_dashboard():
             WHERE id = %s
         """, (session['user_id'],))
         chw_details = cursor.fetchone()
-        
+
+        # Get total assigned mothers and high risk count
+        cursor.execute("""
+            SELECT 
+                COUNT(DISTINCT mc.mother_id) as total_mothers,
+                SUM(CASE WHEN r.risk_level = 'High' THEN 1 ELSE 0 END) as high_risk_count
+            FROM mother_chw mc
+            LEFT JOIN risk_assessments r ON mc.mother_id = r.mother_id
+            WHERE mc.chw_id = %s
+        """, (session['user_id'],))
+        stats = cursor.fetchone()
+
         # Get assigned mothers with their next visits
         cursor.execute("""
             SELECT 
@@ -409,9 +420,43 @@ def chw_dashboard():
             ORDER BY u.username
         """, (session['user_id'], session['user_id']))
         assigned_mothers = cursor.fetchall()
+
+         # Get assigned mothers with next visits and risk levels
+        cursor.execute("""
+            SELECT 
+                u.id, 
+                u.username, 
+                u.email,
+                mc.created_at as assignment_date,
+                r.risk_level,
+                (SELECT 
+                    CONCAT(
+                        DATE_FORMAT(visit_date, '%Y-%m-%d'), 
+                        ' ', 
+                        TIME_FORMAT(visit_time, '%H:%i')
+                    )
+                FROM visits 
+                WHERE mother_id = u.id 
+                AND visit_date >= CURDATE() 
+                ORDER BY visit_date ASC, visit_time ASC
+                LIMIT 1) as next_visit,
+                (SELECT COUNT(*) 
+                FROM messages m 
+                WHERE m.sender_id = u.id 
+                AND m.receiver_id = %s 
+                AND m.is_read = FALSE) as unread_count
+            FROM users u
+            JOIN mother_chw mc ON u.id = mc.mother_id
+            LEFT JOIN risk_assessments r ON u.id = r.mother_id
+            WHERE mc.chw_id = %s AND u.user_type = 'mother'
+            ORDER BY r.risk_level DESC, u.username
+        """, (session['user_id'], session['user_id']))
+        
+        assigned_mothers = cursor.fetchall()
         
         return render_template('CHW/chw_dashboard.html',
                              chw_name=chw_details['username'],
+                             stats=stats,
                              assigned_mothers=assigned_mothers)
                              
     except mysql.connector.Error as err:
@@ -1239,20 +1284,21 @@ def update_profile():
                     
                     file.save(filepath)
                     
-                    # Update profile picture path in database if you have a column for it
+                    # Update profile picture path in database (optional)
                     # cursor.execute("UPDATE users SET profile_picture = %s WHERE id = %s", 
                     #               (filename, session['user_id']))
 
-            # Handle other form data
-            if 'username' in request.form:
-                username = request.form['username']
-                email = request.form['email']
+            # Handle other form data, including the address
+            if 'username' in request.form or 'address' in request.form:
+                username = request.form.get('username')
+                email = request.form.get('email')
+                address = request.form.get('address')  # Fetch the address field
                 
                 cursor.execute("""
                     UPDATE users 
-                    SET username = %s, email = %s 
+                    SET username = %s, email = %s, address = %s 
                     WHERE id = %s
-                """, (username, email, session['user_id']))
+                """, (username, email, address, session['user_id']))
 
             connection.commit()
             flash('Profile updated successfully!', 'success')
@@ -1272,11 +1318,11 @@ def update_profile():
     return redirect(url_for('profile'))
 
 #update medical info
-@app.route('/update_medical_info', methods=['POST'])
-@login_required
-def update_medical_info():
+#@app.route('/update_medical_info', methods=['POST'])
+#@login_required
+#def update_medical_info():
     # Handle medical info update logic
-    return redirect(url_for('profile'))
+#    return redirect(url_for('profile'))
 
 #change password
 @app.route('/change_password', methods=['POST'])
@@ -1796,7 +1842,7 @@ def export_pdf():
         if connection:
             connection.close()
 
-# Optional: Add a route to view all exports
+# Add a route to view all exports
 @app.route('/admin/exports')
 @login_required
 def view_exports():

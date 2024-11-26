@@ -9,6 +9,34 @@
 
 <section class="content">
     <div class="container-fluid">
+        <!-- Statistics Cards -->
+        <div class="row">
+            <div class="col-lg-4 col-6">
+                <div class="small-box bg-info">
+                    <div class="inner">
+                        <h3>{{ stats.total_mothers }}</h3>
+                        <p>Total Assigned Mothers</p>
+                    </div>
+                    <div class="icon">
+                        <i class="fas fa-users"></i>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-lg-4 col-6">
+                <div class="small-box bg-danger">
+                    <div class="inner">
+                        <h3>{{ stats.high_risk_count }}</h3>
+                        <p>High Risk Mothers</p>
+                    </div>
+                    <div class="icon">
+                        <i class="fas fa-exclamation-triangle"></i>
+                    </div>
+                </div>
+            </div>
+            <
+        </div>
+
         <!-- Assigned Mothers Card -->
         <div class="card">
             <div class="card-header">
@@ -23,23 +51,25 @@
                                 <th>Mother's Name</th>
                                 <th>Email</th>
                                 <th>Assignment Date</th>
+                                <th>Risk Level</th>
                                 <th>Next Visit</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
                             {% for mother in assigned_mothers %}
-                            <tr>
+                            <tr class="{% if mother.risk_level == 'High' %}table-danger{% endif %}">
                                 <td>{{ mother.username }}</td>
                                 <td>{{ mother.email }}</td>
                                 <td>{{ mother.assignment_date.strftime('%Y-%m-%d') }}</td>
                                 <td>
-                                    {% if mother.next_visit %}
-                                        {{ mother.next_visit.strftime('%Y-%m-%d %H:%M') }}
-                                    {% else %}
-                                        No upcoming visits
-                                    {% endif %}
+                                    <span class="badge {% if mother.risk_level == 'High' %}bg-danger
+                                                      {% elif mother.risk_level == 'Medium' %}bg-warning
+                                                      {% else %}bg-success{% endif %}">
+                                        {{ mother.risk_level or 'Low' }}
+                                    </span>
                                 </td>
+                                <td>{{ mother.next_visit or 'No upcoming visits' }}</td>
                                 <td>
                                     <div class="btn-group">
                                         <a href="{{ url_for('chw_messages', mother_id=mother.id) }}" 
@@ -122,8 +152,8 @@
                     <form id="messageForm" class="d-none">
                         <div class="input-group">
                             <input type="text" class="form-control" id="messageText" 
-                                   placeholder="Type your message...">
-                            <button class="btn btn-primary" type="submit">Send</button>
+                                   placeholder="Go to the message section to send a message">
+                            <!--<button class="btn btn-primary" type="submit">Send</button>-->
                         </div>
                     </form>
                 </div>

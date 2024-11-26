@@ -22,3 +22,118 @@ This is suppose to be added in the predit route to ensure its save in a table in
 
     except mysql.connector.Error as err:
         print("Error: ", err)
+
+
+Chw side dashboard
+ <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">Meal Plan Reports</h3>
+        </div>
+        <div class="card-body">
+            <a href="{{ url_for('chw_meal_plan_reports') }}" class="btn btn-primary">View Reports</a>
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">Workout Reports</h3> 
+        </div>
+        <div class="card-body">
+            <a href="{{ url_for('chw_workout_reports') }}" class="btn btn-primary">View Reports</a>
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-header">
+            <h3>Messages</h3>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <!-- Mother list -->
+                <div class="col-md-4">
+                    <div class="list-group" id="motherList">
+                        {% for mother in assigned_mothers %}
+                        <a href="#" class="list-group-item list-group-item-action"
+                           data-mother-id="{{ mother.id }}"
+                           onclick="loadMessages({{ mother.id }})">
+                            {{ mother.username }}
+                            <span class="badge bg-primary unread-count" 
+                                  id="unread-{{ mother.id }}"></span>
+                        </a>
+                        {% endfor %}
+                    </div>
+                </div>
+                
+                <!-- Message area -->
+                <div class="col-md-8">
+                    <div id="messageArea" class="mb-3" style="height: 400px; overflow-y: auto;">
+                        <!-- Messages will be loaded here -->
+                    </div>
+                    
+                    <form id="messageForm" class="d-none">
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="messageText" 
+                                   placeholder="Type your message...">
+                            <button class="btn btn-primary" type="submit">Send</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+let currentMotherId = null;
+
+function loadMessages(motherId) {
+    currentMotherId = motherId;
+    document.getElementById('messageForm').classList.remove('d-none');
+    
+    fetch(`/api/messages/${motherId}`)
+        .then(response => response.json())
+        .then(data => {
+            const messageArea = document.getElementById('messageArea');
+            messageArea.innerHTML = data.messages.map(msg => `
+                <div class="message mb-2 p-2 ${msg.sender_id == {{ session['user_id'] }} ? 
+                     'text-end bg-light' : 'bg-info bg-opacity-10'} rounded">
+                    <small class="text-muted">${msg.sender_name} - ${msg.created_at}</small>
+                    <p class="mb-0">${msg.message_text}</p>
+                </div>
+            `).join('');
+            messageArea.scrollTop = messageArea.scrollHeight;
+        });
+}
+
+document.getElementById('messageForm').onsubmit = function(e) {
+    e.preventDefault();
+    const text = document.getElementById('messageText').value;
+    if (!text.trim()) return;
+    
+    fetch('/send_message', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            receiver_id: currentMotherId,
+            message: text
+        })
+    }).then(() => {
+        document.getElementById('messageText').value = '';
+        loadMessages(currentMotherId);
+    });
+};
+
+// Check for unread messages
+function checkUnread() {
+    fetch('/api/messages/unread')
+        .then(response => response.json())
+        .then(data => {
+            data.unread.forEach(u => {
+                const badge = document.getElementById(`unread-${u.sender_id}`);
+                if (badge) badge.textContent = u.count;
+            });
+        });
+}
+
+setInterval(checkUnread, 30000); // Check every 30 seconds
+checkUnread(); // Initial check
+</script>
